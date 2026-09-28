@@ -23,6 +23,7 @@ EXISTS = "exists"
 CANCELED = "canceled"
 
 TERMINAL_COMPLETE = (DONE, EXISTS)
+ACTIVE_DOWNLOAD = (DOWNLOADING, MERGING)
 
 
 @dataclass
@@ -57,6 +58,13 @@ class Row:
     total_bytes: Optional[int] = None
     speed: Optional[float] = None
     eta: Optional[int] = None
+
+    # Set atomically with status when a row is claimed for download (see
+    # claim_next_ready_row). Cancellation (remove/stop) reads and sets this
+    # under the SAME lock that claims it, so there is no window where a
+    # row is "Downloading" without a cancel_event a canceller can reach
+    # (docs/reviews/A5.md finding #2).
+    cancel_event: Optional["threading.Event"] = field(default=None, repr=False)
 
     def snapshot(self) -> dict:
         return {
@@ -122,12 +130,17 @@ class QueueManager:
         return row
 
     def remove(self, row_ids: list[str]) -> list[Row]:
-        """Returns the Row objects actually removed, so a caller (Api) can
-        tell whether one of them is the row currently being downloaded and
-        needs its cancel event set (FR-27)."""
+        """Returns the Row objects actually removed. If any removed row is
+        currently downloading/merging, its cancel_event is set right here,
+        under the same lock that claim_next_ready_row() uses to install that
+        event — so this can never race a download that is *about* to start
+        but hasn't registered its cancel_event yet (FR-27, A5 finding #2)."""
         wanted = set(row_ids)
         with self._lock:
             removed = [row for row in self._rows if row.id in wanted]
+            for row in removed:
+                if row.status in ACTIVE_DOWNLOAD and row.cancel_event is not None:
+                    row.cancel_event.set()
             self._rows = [row for row in self._rows if row.id not in wanted]
             self._revision += 1
         self._notify()
@@ -140,16 +153,20 @@ class QueueManager:
             self._revision += 1
         self._notify()
 
-    def claim_next_ready_row(self) -> Optional[Row]:
+    def claim_next_ready_row(self, cancel_event: "threading.Event") -> Optional[Row]:
         """Atomically finds the top-most Ready row and flips it to
-        Downloading in one locked step (D-13, FR-23): reading the row's
-        selections happens AFTER this, so a select() call — guarded by
-        `status != READY` — can no longer race with it (docs/reviews/A4.md
-        finding #4's ordering concern, applied here too)."""
+        Downloading *and* installs `cancel_event` in one locked step (D-13,
+        FR-23): reading the row's selections happens AFTER this, so a
+        select() call — guarded by `status != READY` — can no longer race
+        with it (docs/reviews/A4.md finding #4's ordering concern, applied
+        here too). Installing cancel_event in this same lock (rather than
+        later, e.g. in the caller) is what lets remove()/cancel_active_row()
+        reach a just-claimed row with no gap (A5 finding #2)."""
         with self._lock:
             for row in self._rows:
                 if row.status == READY:
                     row.status = DOWNLOADING
+                    row.cancel_event = cancel_event
                     self._revision += 1
                     claimed = row
                     break
@@ -157,6 +174,17 @@ class QueueManager:
                 return None
         self._notify()
         return claimed
+
+    def cancel_active_row(self) -> bool:
+        """Cancels whichever row is currently Downloading/Merging (FR-28),
+        looked up fresh under the lock so it can't race claim_next_ready_row
+        either. Returns whether a row was found and canceled."""
+        with self._lock:
+            for row in self._rows:
+                if row.status in ACTIVE_DOWNLOAD and row.cancel_event is not None:
+                    row.cancel_event.set()
+                    return True
+            return False
 
     def mark_fetching(self, row: Row) -> None:
         self._update_row(row, status=FETCHING, error=None)

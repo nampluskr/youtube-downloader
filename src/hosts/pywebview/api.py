@@ -76,9 +76,7 @@ class Api:
             self._events.notice(duplicates, invalid)
 
     def remove(self, row_ids: list[str]) -> None:
-        removed = self._queue.remove(row_ids)
-        for row in removed:
-            self._runner.cancel_row(row)  # FR-27: cancel if it was downloading
+        self._queue.remove(row_ids)  # cancels in-flight downloads among them (FR-27)
 
     def clear_completed(self) -> None:
         self._queue.clear_completed()
@@ -106,11 +104,16 @@ class Api:
         return self._force_close
 
     def confirm_close(self, keep_downloading: bool) -> None:
-        """Called by the frontend's close-confirmation dialog (FR-33)."""
+        """Called by the frontend's close-confirmation dialog (FR-33). Waits
+        (no timeout — see DownloadRunner.wait_until_idle) for the in-flight
+        download's cancellation to actually finish before destroying the
+        window — otherwise the process can exit mid-cleanup and leave a
+        partial file behind (A5 finding #1)."""
         if keep_downloading or self._window is None:
             return
         self._force_close = True  # skip the confirm dialog if 'closing' fires again
         self._runner.stop()
+        self._runner.wait_until_idle()
         self._window.destroy()
 
     # ------------------------------------------------------------------

@@ -161,77 +161,116 @@ export function createQueueTable(callbacks: QueueTableCallbacks): QueueTableHand
   main.appendChild(empty);
   main.appendChild(wrap);
 
+  // Keyed by row id so an unrelated row's DOM (its open <select>, focus,
+  // scroll position) survives a re-render triggered by another row's
+  // progress event. Rebuilding the whole tbody on every progress tick used
+  // to tear down every row's controls, including ones a user was mid-click
+  // on in a different row (docs/reviews/A5.md finding #3).
+  const rowNodes = new Map<string, HTMLTableRowElement>();
+
+  function rowSignature(row: RowSnapshot, index: number, selectedId: string | null): string {
+    return JSON.stringify([row, index, row.id === selectedId]);
+  }
+
+  function buildRow(row: RowSnapshot, index: number, selectedId: string | null): HTMLTableRowElement {
+    const tr = document.createElement('tr');
+    tr.dataset.rowId = row.id;
+    if (row.id === selectedId) tr.classList.add('selected');
+    tr.addEventListener('click', () => callbacks.onSelect(row.id));
+
+    const indexCell = document.createElement('td');
+    indexCell.textContent = String(index + 1);
+
+    const titleCell = document.createElement('td');
+    titleCell.textContent = row.title;
+    titleCell.title = `${row.title}\n${row.id}`;
+
+    const editable = row.status === 'ready';
+
+    const resolutionOptions = [
+      { value: NONE_VALUE, label: 'None' },
+      ...row.videoOptions.map((o) => ({ value: o.key, label: o.label })),
+    ];
+    const resolutionCell = selectCell(resolutionOptions, row.selectedResolutionKey, editable, (value) =>
+      callbacks.onSelectField(row.id, 'resolution', value),
+    );
+
+    const currentVideoOption = row.videoOptions.find((o) => o.key === row.selectedResolutionKey);
+    const codecOptions = (currentVideoOption?.codecs ?? []).map((c) => ({ value: c.id, label: c.label }));
+    const codecCell = selectCell(
+      codecOptions,
+      row.selectedVideoFormatId,
+      editable && codecOptions.length > 0,
+      (value) => callbacks.onSelectField(row.id, 'codec', value),
+    );
+    if (codecOptions.length === 0) {
+      codecCell.textContent = '-';
+    }
+
+    // D-17: "None" audio is only offered while no video format is selected.
+    const audioOptions = [
+      ...(row.selectedVideoFormatId ? [] : [{ value: NONE_VALUE, label: 'None' }]),
+      ...row.audioOptions.map((o) => ({ value: o.id, label: o.label })),
+    ];
+    const audioCell = selectCell(audioOptions, row.selectedAudioFormatId, editable, (value) =>
+      callbacks.onSelectField(row.id, 'audio', value),
+    );
+
+    const subtitleOptions = [
+      { value: NONE_VALUE, label: 'None' },
+      ...row.subtitleOptions.map((o) => ({ value: o.id, label: o.label })),
+    ];
+    const subtitleCell = selectCell(subtitleOptions, row.selectedSubtitleId, editable, (value) =>
+      callbacks.onSelectField(row.id, 'subtitle', value),
+    );
+
+    const sizeCell = document.createElement('td');
+    sizeCell.textContent = row.size;
+
+    tr.appendChild(indexCell);
+    tr.appendChild(titleCell);
+    tr.appendChild(resolutionCell);
+    tr.appendChild(codecCell);
+    tr.appendChild(audioCell);
+    tr.appendChild(subtitleCell);
+    tr.appendChild(sizeCell);
+    tr.appendChild(statusCell(row));
+
+    return tr;
+  }
+
   function render(rows: RowSnapshot[], selectedId: string | null): void {
     empty.style.display = rows.length === 0 ? 'flex' : 'none';
     wrap.style.display = rows.length === 0 ? 'none' : 'block';
 
-    tbody.innerHTML = '';
+    const seen = new Set<string>();
+    let previous: HTMLTableRowElement | null = null;
+
     rows.forEach((row, index) => {
-      const tr = document.createElement('tr');
-      tr.dataset.rowId = row.id;
-      if (row.id === selectedId) tr.classList.add('selected');
-      tr.addEventListener('click', () => callbacks.onSelect(row.id));
-
-      const indexCell = document.createElement('td');
-      indexCell.textContent = String(index + 1);
-
-      const titleCell = document.createElement('td');
-      titleCell.textContent = row.title;
-      titleCell.title = `${row.title}\n${row.id}`;
-
-      const editable = row.status === 'ready';
-
-      const resolutionOptions = [
-        { value: NONE_VALUE, label: 'None' },
-        ...row.videoOptions.map((o) => ({ value: o.key, label: o.label })),
-      ];
-      const resolutionCell = selectCell(resolutionOptions, row.selectedResolutionKey, editable, (value) =>
-        callbacks.onSelectField(row.id, 'resolution', value),
-      );
-
-      const currentVideoOption = row.videoOptions.find((o) => o.key === row.selectedResolutionKey);
-      const codecOptions = (currentVideoOption?.codecs ?? []).map((c) => ({ value: c.id, label: c.label }));
-      const codecCell = selectCell(
-        codecOptions,
-        row.selectedVideoFormatId,
-        editable && codecOptions.length > 0,
-        (value) => callbacks.onSelectField(row.id, 'codec', value),
-      );
-      if (codecOptions.length === 0) {
-        codecCell.textContent = '-';
+      seen.add(row.id);
+      const signature = rowSignature(row, index, selectedId);
+      let tr = rowNodes.get(row.id);
+      if (!tr || tr.dataset.signature !== signature) {
+        const rebuilt = buildRow(row, index, selectedId);
+        rebuilt.dataset.signature = signature;
+        if (tr) tr.replaceWith(rebuilt);
+        tr = rebuilt;
+        rowNodes.set(row.id, tr);
       }
 
-      // D-17: "None" audio is only offered while no video format is selected.
-      const audioOptions = [
-        ...(row.selectedVideoFormatId ? [] : [{ value: NONE_VALUE, label: 'None' }]),
-        ...row.audioOptions.map((o) => ({ value: o.id, label: o.label })),
-      ];
-      const audioCell = selectCell(audioOptions, row.selectedAudioFormatId, editable, (value) =>
-        callbacks.onSelectField(row.id, 'audio', value),
-      );
-
-      const subtitleOptions = [
-        { value: NONE_VALUE, label: 'None' },
-        ...row.subtitleOptions.map((o) => ({ value: o.id, label: o.label })),
-      ];
-      const subtitleCell = selectCell(subtitleOptions, row.selectedSubtitleId, editable, (value) =>
-        callbacks.onSelectField(row.id, 'subtitle', value),
-      );
-
-      const sizeCell = document.createElement('td');
-      sizeCell.textContent = row.size;
-
-      tr.appendChild(indexCell);
-      tr.appendChild(titleCell);
-      tr.appendChild(resolutionCell);
-      tr.appendChild(codecCell);
-      tr.appendChild(audioCell);
-      tr.appendChild(subtitleCell);
-      tr.appendChild(sizeCell);
-      tr.appendChild(statusCell(row));
-
-      tbody.appendChild(tr);
+      const wantedNext = previous === null ? tbody.firstChild : previous.nextSibling;
+      if (wantedNext !== tr) {
+        tbody.insertBefore(tr, wantedNext);
+      }
+      previous = tr;
     });
+
+    for (const [id, tr] of rowNodes) {
+      if (!seen.has(id)) {
+        tr.remove();
+        rowNodes.delete(id);
+      }
+    }
   }
 
   return { element: main, render };

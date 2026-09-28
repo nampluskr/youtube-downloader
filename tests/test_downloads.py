@@ -7,7 +7,7 @@ import youtube_kit as yk
 
 from src.hosts.pywebview import workers as workers_module
 from src.hosts.pywebview.api import Api
-from src.hosts.pywebview.queue import CANCELED, DONE, EXISTS, FAILED, READY
+from src.hosts.pywebview.queue import CANCELED, DONE, DOWNLOADING, EXISTS, FAILED, READY, QueueManager
 
 
 class FakeEvents:
@@ -368,3 +368,129 @@ def test_container_and_subtitle_format_settings_are_passed_through(monkeypatch, 
     api.start()
     assert wait_until(lambda: row(api)["status"] == DONE)
     assert seen["container"] == "mkv"
+
+
+# --- Regression coverage for docs/reviews/A5.md (Codex adversarial review) ---
+
+
+def test_claim_and_remove_cannot_race_a_download_past_cancellation(monkeypatch):
+    """A5 finding #2: claim_next_ready_row() used to flip a row to
+    Downloading before the runner had installed a cancel_event for it, so a
+    remove() landing in that gap found nothing to cancel and the download
+    would silently finish to disk anyway. Fixed by having
+    claim_next_ready_row() install the cancel_event itself, under the same
+    lock remove() reads it with — this test proves there is no gap left."""
+    queue = QueueManager(on_change=lambda: None)
+    added = queue.add_row_if_absent("ooooooooooo", "https://www.youtube.com/watch?v=ooooooooooo")
+    added.status = READY
+
+    cancel_event = threading.Event()
+    claimed = queue.claim_next_ready_row(cancel_event)
+    assert claimed is added
+    assert claimed.status == DOWNLOADING
+    assert claimed.cancel_event is cancel_event  # installed atomically with the status flip
+
+    removed = queue.remove(["ooooooooooo"])
+    assert removed == [added]
+    assert cancel_event.is_set()  # remove() found and set it -- no race window
+
+
+def test_cancel_active_row_finds_and_cancels_the_downloading_row():
+    queue = QueueManager(on_change=lambda: None)
+    added = queue.add_row_if_absent("ppppppppppp", "https://www.youtube.com/watch?v=ppppppppppp")
+    added.status = READY
+
+    assert queue.cancel_active_row() is False  # nothing downloading yet
+
+    cancel_event = threading.Event()
+    queue.claim_next_ready_row(cancel_event)
+    assert queue.cancel_active_row() is True
+    assert cancel_event.is_set()
+
+
+def test_confirm_close_waits_for_cancellation_cleanup_before_destroying_window(monkeypatch, tmp_path):
+    """A5 finding #1: confirm_close() used to call window.destroy()
+    immediately after stop(), which only *requests* cancellation -- the
+    download thread (and youtube-kit's own cleanup) can still be running,
+    so the process could exit mid-cleanup and leave a partial file. Fixed
+    by joining the runner thread (DownloadRunner.wait_until_idle) before
+    destroying the window."""
+    cleanup_started = threading.Event()
+    cleanup_finished = threading.Event()
+
+    def fake_video(url, video, audio, container=None, out_dir=None, progress=None, cancel=None):
+        deadline = time.time() + 5
+        while time.time() < deadline and not cancel.is_set():
+            time.sleep(0.01)
+        if cancel.is_set():
+            cleanup_started.set()
+            time.sleep(0.15)  # simulate youtube-kit deleting its temp dir
+            cleanup_finished.set()
+            raise yk.Cancelled("closing")
+        return {"status": "ok", "path": "x"}
+
+    monkeypatch.setattr(workers_module.yk, "video", fake_video)
+    api = make_ready_api(monkeypatch, "qqqqqqqqqqq")
+    api._settings["save_folder"] = str(tmp_path)
+
+    class FakeWindow:
+        def __init__(self):
+            self.destroyed = False
+
+        def destroy(self):
+            self.destroyed = True
+
+    fake_window = FakeWindow()
+    api._window = fake_window
+
+    api.start()
+    assert wait_until(lambda: api._runner.is_active())
+    api.confirm_close(keep_downloading=False)
+
+    assert cleanup_finished.is_set()  # cleanup had already finished...
+    assert fake_window.destroyed  # ...before we allowed the window to close
+    assert not api._runner.is_active()
+    assert row(api)["status"] == CANCELED
+
+
+def test_stop_racing_right_before_claim_still_cancels_the_newly_claimed_row(monkeypatch, tmp_path):
+    """A5 finding #2, tightened after Codex's re-verification: stop() can
+    clear `_running` and have `cancel_active_row()` find nothing (because no
+    row is Downloading yet) *after* the runner's `while
+    self._running.is_set()` check already passed but *before* it finishes
+    claiming a row -- that row would then start downloading with nobody
+    having asked to cancel it. Reproduced deterministically by clearing
+    `_running` (what stop() does first) as a side effect of the claim call
+    itself, landing exactly in that gap: real claim_next_ready_row() then
+    proceeds to install the row's cancel_event, and DownloadRunner._run()'s
+    post-claim `if not self._running.is_set(): cancel_event.set()` guard is
+    what must catch it from there."""
+    api = make_ready_api(monkeypatch, "rrrrrrrrrrr")
+    api._settings["save_folder"] = str(tmp_path)
+
+    video_calls = []
+
+    def fake_video(url, video, audio, container=None, out_dir=None, progress=None, cancel=None):
+        # youtube-kit checks cancellation before doing any work (that's the
+        # whole point of passing `cancel` in) -- this mirrors that contract.
+        if cancel is not None and cancel.is_set():
+            raise yk.Cancelled("already canceled before starting")
+        video_calls.append(1)
+        return {"status": "ok", "path": "x"}
+
+    monkeypatch.setattr(workers_module.yk, "video", fake_video)
+
+    real_claim = api._queue.claim_next_ready_row
+    call_count = {"n": 0}
+
+    def racing_claim(cancel_event):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            api._runner._running.clear()  # what stop() does, landing before the claim below
+        return real_claim(cancel_event)
+
+    monkeypatch.setattr(api._queue, "claim_next_ready_row", racing_claim)
+
+    api.start()
+    assert wait_until(lambda: row(api)["status"] == CANCELED, timeout=3)
+    assert video_calls == []  # canceled before the download call ever ran

@@ -122,8 +122,6 @@ class DownloadRunner:
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
         self._running = threading.Event()
-        self._current_row: Optional[Row] = None
-        self._current_cancel: Optional[threading.Event] = None
 
     def is_active(self) -> bool:
         with self._lock:
@@ -141,44 +139,54 @@ class DownloadRunner:
         """Stops after the current row (FR-28): no further rows start, and
         the in-flight one is cancelled so it leaves no partial file."""
         self._running.clear()
-        with self._lock:
-            if self._current_cancel is not None:
-                self._current_cancel.set()
+        self._queue.cancel_active_row()
 
-    def cancel_row(self, row: Row) -> bool:
-        """Cancels `row` if it is the one currently downloading (FR-27).
-        Returns whether it was."""
+    def wait_until_idle(self, timeout: Optional[float] = None) -> bool:
+        """Blocks until the runner thread has actually exited. A caller that
+        is about to tear down the process (window close, FR-33) MUST call
+        this with no timeout (the default) after stop() — a bounded wait can
+        expire while youtube-kit is still mid-cleanup and let the caller
+        destroy the window anyway, leaving a partial file on disk exactly
+        like the bug this exists to close (A5 finding #1, confirmed still
+        reachable with a bounded wait on Codex's re-verification pass).
+        youtube-kit's cancel-triggered cleanup is a local file delete, not a
+        network operation, so blocking here has no realistic unbounded case.
+        An explicit `timeout` is only for tests. Returns whether the thread
+        is idle when this returns."""
         with self._lock:
-            if self._current_row is row and self._current_cancel is not None:
-                self._current_cancel.set()
-                return True
-            return False
+            thread = self._thread
+        if thread is None:
+            return True
+        thread.join(timeout)
+        return not thread.is_alive()
 
     def _run(self) -> None:
         try:
             while self._running.is_set():
-                row = self._queue.claim_next_ready_row()
+                cancel_event = threading.Event()
+                row = self._queue.claim_next_ready_row(cancel_event)
                 if row is None:
                     break
-                self._download_row(row)
+                if not self._running.is_set():
+                    # stop() landed between the `while` check above and the
+                    # claim just now (A5 finding #2, confirmed still
+                    # reachable on Codex's re-verification pass): this row
+                    # was claimed after stop() already asked
+                    # cancel_active_row() to cancel "the" active row, and
+                    # found none yet. Cancel it here instead, before any
+                    # actual download call runs.
+                    cancel_event.set()
+                self._download_row(row, cancel_event)
         finally:
-            with self._lock:
-                self._current_row = None
-                self._current_cancel = None
             self._running.clear()
 
-    def _download_row(self, row: Row) -> None:
+    def _download_row(self, row: Row, cancel_event: threading.Event) -> None:
         settings = self._settings_provider()
         save_folder = settings["save_folder"]
         container = settings["container"]
         container = None if container in (None, "auto") else container
         subtitle_format = settings["subtitle_format"]
         out_dir = os.path.join(save_folder, row.id)
-
-        cancel_event = threading.Event()
-        with self._lock:
-            self._current_row = row
-            self._current_cancel = cancel_event
 
         def on_progress(event: dict) -> None:
             stage = event.get("stage")
@@ -242,7 +250,3 @@ class DownloadRunner:
             self._queue.mark_failed(row, str(exc))
         except Exception as exc:  # unexpected — still keep the row identifiable
             self._queue.mark_failed(row, f"Unexpected error: {exc}")
-        finally:
-            with self._lock:
-                self._current_row = None
-                self._current_cancel = None
