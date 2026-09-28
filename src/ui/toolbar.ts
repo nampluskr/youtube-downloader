@@ -6,6 +6,10 @@ export interface ToolbarCallbacks {
   onChooseFolder: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  onStart: () => void;
+  onStop: () => void;
+  onClearCompleted: () => void;
+  onOpenSettings: () => void;
 }
 
 export interface ToolbarHandle {
@@ -13,6 +17,9 @@ export interface ToolbarHandle {
   setFolderPath: (path: string) => void;
   setRemoveEnabled: (enabled: boolean) => void;
   setMoveEnabled: (enabled: boolean) => void;
+  setStartEnabled: (enabled: boolean) => void;
+  setStopEnabled: (enabled: boolean) => void;
+  setClearCompletedEnabled: (enabled: boolean) => void;
 }
 
 function iconButton(icon: string, tooltip: string, id: string): HTMLButtonElement {
@@ -33,8 +40,12 @@ export function createToolbar(_theme: ThemeManager, callbacks: ToolbarCallbacks)
 
   const runGroup = document.createElement('div');
   runGroup.className = 'toolbar-group';
-  runGroup.appendChild(iconButton('play', 'Start', 'toolbar-start'));
-  runGroup.appendChild(iconButton('debug-stop', 'Stop', 'toolbar-stop'));
+  const startBtn = iconButton('play', 'Start', 'toolbar-start');
+  startBtn.addEventListener('click', () => callbacks.onStart());
+  const stopBtn = iconButton('debug-stop', 'Stop', 'toolbar-stop');
+  stopBtn.addEventListener('click', () => callbacks.onStop());
+  runGroup.appendChild(startBtn);
+  runGroup.appendChild(stopBtn);
 
   const rowGroup = document.createElement('div');
   rowGroup.className = 'toolbar-group';
@@ -48,7 +59,10 @@ export function createToolbar(_theme: ThemeManager, callbacks: ToolbarCallbacks)
   const removeBtn = iconButton('trash', 'Remove', 'toolbar-remove');
   removeBtn.addEventListener('click', () => callbacks.onRemoveSelected());
   rowGroup.appendChild(removeBtn);
-  rowGroup.appendChild(iconButton('clear-all', 'Clear Completed', 'toolbar-clear-completed'));
+
+  const clearCompletedBtn = iconButton('clear-all', 'Clear Completed', 'toolbar-clear-completed');
+  clearCompletedBtn.addEventListener('click', () => callbacks.onClearCompleted());
+  rowGroup.appendChild(clearCompletedBtn);
 
   const folderBtn = document.createElement('button');
   folderBtn.id = 'toolbar-choose-folder';
@@ -71,6 +85,8 @@ export function createToolbar(_theme: ThemeManager, callbacks: ToolbarCallbacks)
   themeBtn.addEventListener('click', () => callbacks.onToggleTheme());
 
   const settingsBtn = iconButton('gear', 'Settings', 'toolbar-settings');
+  settingsBtn.disabled = false;
+  settingsBtn.addEventListener('click', () => callbacks.onOpenSettings());
 
   toolbar.appendChild(runGroup);
   toolbar.appendChild(rowGroup);
@@ -90,6 +106,15 @@ export function createToolbar(_theme: ThemeManager, callbacks: ToolbarCallbacks)
     setMoveEnabled: (enabled: boolean) => {
       moveUpBtn.disabled = !enabled;
       moveDownBtn.disabled = !enabled;
+    },
+    setStartEnabled: (enabled: boolean) => {
+      startBtn.disabled = !enabled;
+    },
+    setStopEnabled: (enabled: boolean) => {
+      stopBtn.disabled = !enabled;
+    },
+    setClearCompletedEnabled: (enabled: boolean) => {
+      clearCompletedBtn.disabled = !enabled;
     },
   };
 }

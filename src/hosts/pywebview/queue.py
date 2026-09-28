@@ -16,6 +16,13 @@ QUEUED = "queued"
 FETCHING = "fetching"
 READY = "ready"
 FAILED = "failed"
+DOWNLOADING = "downloading"
+MERGING = "merging"
+DONE = "done"
+EXISTS = "exists"
+CANCELED = "canceled"
+
+TERMINAL_COMPLETE = (DONE, EXISTS)
 
 
 @dataclass
@@ -43,6 +50,14 @@ class Row:
     selected_audio_format_id: Optional[str] = None
     selected_subtitle_id: Optional[str] = None
 
+    # Download progress (Phase 5). downloaded_bytes/total_bytes/speed/eta
+    # mirror youtube-kit's progress event fields exactly and stay None
+    # whenever the backend doesn't provide them (NFR-6 — never estimated).
+    downloaded_bytes: Optional[int] = None
+    total_bytes: Optional[int] = None
+    speed: Optional[float] = None
+    eta: Optional[int] = None
+
     def snapshot(self) -> dict:
         return {
             "id": self.id,
@@ -62,6 +77,10 @@ class Row:
             "selectedVideoFormatId": self.selected_video_format_id,
             "selectedAudioFormatId": self.selected_audio_format_id,
             "selectedSubtitleId": self.selected_subtitle_id,
+            "downloadedBytes": self.downloaded_bytes,
+            "totalBytes": self.total_bytes,
+            "speed": self.speed,
+            "eta": self.eta,
         }
 
 
@@ -102,12 +121,42 @@ class QueueManager:
         self._notify()
         return row
 
-    def remove(self, row_ids: list[str]) -> None:
+    def remove(self, row_ids: list[str]) -> list[Row]:
+        """Returns the Row objects actually removed, so a caller (Api) can
+        tell whether one of them is the row currently being downloaded and
+        needs its cancel event set (FR-27)."""
         wanted = set(row_ids)
         with self._lock:
+            removed = [row for row in self._rows if row.id in wanted]
             self._rows = [row for row in self._rows if row.id not in wanted]
             self._revision += 1
         self._notify()
+        return removed
+
+    def clear_completed(self) -> None:
+        """Removes Done/Exists rows only (FR-29); queued/failed/etc. stay."""
+        with self._lock:
+            self._rows = [row for row in self._rows if row.status not in TERMINAL_COMPLETE]
+            self._revision += 1
+        self._notify()
+
+    def claim_next_ready_row(self) -> Optional[Row]:
+        """Atomically finds the top-most Ready row and flips it to
+        Downloading in one locked step (D-13, FR-23): reading the row's
+        selections happens AFTER this, so a select() call — guarded by
+        `status != READY` — can no longer race with it (docs/reviews/A4.md
+        finding #4's ordering concern, applied here too)."""
+        with self._lock:
+            for row in self._rows:
+                if row.status == READY:
+                    row.status = DOWNLOADING
+                    self._revision += 1
+                    claimed = row
+                    break
+            else:
+                return None
+        self._notify()
+        return claimed
 
     def mark_fetching(self, row: Row) -> None:
         self._update_row(row, status=FETCHING, error=None)
@@ -135,6 +184,32 @@ class QueueManager:
 
     def mark_failed(self, row: Row, error: str) -> None:
         self._update_row(row, status=FAILED, error=error)
+
+    def mark_downloading(
+        self,
+        row: Row,
+        downloaded_bytes: Optional[int] = None,
+        total_bytes: Optional[int] = None,
+        speed: Optional[float] = None,
+        eta: Optional[int] = None,
+    ) -> None:
+        self._update_row(
+            row,
+            status=DOWNLOADING,
+            downloaded_bytes=downloaded_bytes,
+            total_bytes=total_bytes,
+            speed=speed,
+            eta=eta,
+        )
+
+    def mark_merging(self, row: Row) -> None:
+        self._update_row(row, status=MERGING, speed=None, eta=None)
+
+    def mark_done(self, row: Row, reused: bool) -> None:
+        self._update_row(row, status=EXISTS if reused else DONE, error=None)
+
+    def mark_canceled(self, row: Row) -> None:
+        self._update_row(row, status=CANCELED)
 
     def move(self, row_id: str, delta: int) -> None:
         """delta -1 = up, +1 = down (FR-13/14). List order IS work order."""

@@ -271,15 +271,19 @@ def format_by_id(fmts: list[dict], format_id: Optional[str]) -> Optional[dict]:
     return next((f for f in fmts if f["id"] == format_id), None)
 
 
-def apply_defaults(info: dict) -> dict:
+def apply_defaults(info: dict, preferred_language: str = PREFERRED_SUBTITLE_LANGUAGE) -> dict:
     """Everything a row needs right after fetch: option lists, the D-16
     default selection, and the labels/size derived from it. Phase 4's
     select_* functions (below) mutate the selection ids this returns; the
     row re-derives labels/size from them the same way each time.
+
+    `preferred_language` is read once, at fetch time, from the settings
+    current when THIS row was added — later settings changes apply only to
+    rows added after them (FR-32's "새로 추가되는 행에만 적용").
     """
     v_options = video_options(info)
     a_options = audio_options(info)
-    s_options = subtitle_options(info)
+    s_options = subtitle_options(info, preferred_language=preferred_language)
 
     video_fmt = select_default_video(info)
     audio_fmt = select_default_audio(info)

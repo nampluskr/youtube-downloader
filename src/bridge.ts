@@ -21,11 +21,22 @@ export interface SubtitleOption {
   key: string;
 }
 
+export type RowStatus =
+  | 'queued'
+  | 'fetching'
+  | 'ready'
+  | 'failed'
+  | 'downloading'
+  | 'merging'
+  | 'done'
+  | 'exists'
+  | 'canceled';
+
 export interface RowSnapshot {
   id: string;
   url: string;
   title: string;
-  status: 'queued' | 'fetching' | 'ready' | 'failed';
+  status: RowStatus;
   error: string | null;
   resolution: string;
   codec: string;
@@ -39,6 +50,10 @@ export interface RowSnapshot {
   selectedVideoFormatId: string | null;
   selectedAudioFormatId: string | null;
   selectedSubtitleId: string | null;
+  downloadedBytes: number | null;
+  totalBytes: number | null;
+  speed: number | null;
+  eta: number | null;
 }
 
 export type SelectField = 'resolution' | 'codec' | 'audio' | 'subtitle';
@@ -48,20 +63,37 @@ export interface Notice {
   invalid: number;
 }
 
+export interface Settings {
+  theme: 'light' | 'dark';
+  save_folder: string;
+  container: 'auto' | 'mp4' | 'mkv';
+  subtitle_format: string;
+  preferred_language: string;
+  window_width: number;
+  window_height: number;
+}
+
 declare global {
   interface Window {
     pywebview?: {
       api: {
         add_urls(text: string): Promise<void>;
         remove(rowIds: string[]): Promise<void>;
-        get_save_folder(): Promise<string>;
+        clear_completed(): Promise<void>;
         choose_folder(): Promise<string | null>;
         move(rowId: string, delta: number): Promise<void>;
         select(rowId: string, field: SelectField, value: string | null): Promise<void>;
+        start(): Promise<void>;
+        stop(): Promise<void>;
+        is_downloading(): Promise<boolean>;
+        confirm_close(keepDownloading: boolean): Promise<void>;
+        get_settings(): Promise<Settings>;
+        save_settings(patch: Partial<Settings>): Promise<Settings>;
       };
     };
     __ytdlOnRows?: (payload: RowsPayload) => void;
     __ytdlOnNotice?: (notice: Notice) => void;
+    __ytdlOnCloseRequest?: () => void;
   }
 }
 
@@ -87,9 +119,9 @@ export async function removeRows(rowIds: string[]): Promise<void> {
   await window.pywebview!.api.remove(rowIds);
 }
 
-export async function getSaveFolder(): Promise<string> {
+export async function clearCompleted(): Promise<void> {
   await waitForApi();
-  return window.pywebview!.api.get_save_folder();
+  await window.pywebview!.api.clear_completed();
 }
 
 export async function chooseFolder(): Promise<string | null> {
@@ -107,6 +139,31 @@ export async function selectField(rowId: string, field: SelectField, value: stri
   await window.pywebview!.api.select(rowId, field, value);
 }
 
+export async function startDownloads(): Promise<void> {
+  await waitForApi();
+  await window.pywebview!.api.start();
+}
+
+export async function stopDownloads(): Promise<void> {
+  await waitForApi();
+  await window.pywebview!.api.stop();
+}
+
+export async function confirmClose(keepDownloading: boolean): Promise<void> {
+  await waitForApi();
+  await window.pywebview!.api.confirm_close(keepDownloading);
+}
+
+export async function getSettings(): Promise<Settings> {
+  await waitForApi();
+  return window.pywebview!.api.get_settings();
+}
+
+export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
+  await waitForApi();
+  return window.pywebview!.api.save_settings(patch);
+}
+
 export function onRows(cb: (rows: RowSnapshot[]) => void): void {
   // A push computed before a later mutation can arrive after it (the
   // background fetch thread and the UI thread both trigger pushes, and
@@ -122,4 +179,8 @@ export function onRows(cb: (rows: RowSnapshot[]) => void): void {
 
 export function onNotice(cb: (notice: Notice) => void): void {
   window.__ytdlOnNotice = (raw: Notice) => cb(raw);
+}
+
+export function onCloseRequest(cb: () => void): void {
+  window.__ytdlOnCloseRequest = cb;
 }

@@ -13,10 +13,24 @@ export interface QueueTableCallbacks {
   onSelectField: (rowId: string, field: SelectField, value: string | null) => void;
 }
 
+function formatSpeed(bytesPerSec: number | null): string {
+  if (bytesPerSec === null) return '';
+  return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
+}
+
+function formatEta(seconds: number | null): string {
+  if (seconds === null) return '';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 function statusCell(row: RowSnapshot): HTMLElement {
   const cell = document.createElement('td');
   const icon = document.createElement('i');
   const label = document.createElement('span');
+  const detail = document.createElement('div');
+  detail.className = 'status-detail';
 
   switch (row.status) {
     case 'queued':
@@ -29,6 +43,46 @@ function statusCell(row: RowSnapshot): HTMLElement {
     case 'ready':
       label.textContent = 'Ready';
       break;
+    case 'downloading': {
+      const total = row.totalBytes;
+      const done = row.downloadedBytes;
+      if (total && done !== null) {
+        const pct = Math.round((done / total) * 100);
+        label.textContent = `${pct}%`;
+        const bar = document.createElement('div');
+        bar.className = 'status-progress-bar';
+        const fill = document.createElement('div');
+        fill.className = 'status-progress-fill';
+        fill.style.width = `${pct}%`;
+        bar.appendChild(fill);
+        detail.appendChild(bar);
+      } else {
+        label.textContent = 'Downloading';
+      }
+      const speedEta = [formatSpeed(row.speed), formatEta(row.eta)].filter(Boolean).join('  ');
+      if (speedEta) {
+        const speedLine = document.createElement('div');
+        speedLine.textContent = speedEta;
+        detail.appendChild(speedLine);
+      }
+      break;
+    }
+    case 'merging':
+      icon.className = 'codicon codicon-sync codicon-modifier-spin status-icon status-progress';
+      label.textContent = 'Merging';
+      break;
+    case 'done':
+      icon.className = 'codicon codicon-check status-icon status-success';
+      label.textContent = 'Done';
+      break;
+    case 'exists':
+      icon.className = 'codicon codicon-pass status-icon status-success';
+      label.textContent = 'Exists';
+      break;
+    case 'canceled':
+      icon.className = 'codicon codicon-circle-slash status-icon';
+      label.textContent = 'Canceled';
+      break;
     case 'failed':
       icon.className = 'codicon codicon-error status-icon status-error';
       label.textContent = 'Failed';
@@ -38,6 +92,7 @@ function statusCell(row: RowSnapshot): HTMLElement {
 
   if (icon.className) cell.appendChild(icon);
   cell.appendChild(label);
+  if (detail.childNodes.length > 0) cell.appendChild(detail);
   return cell;
 }
 

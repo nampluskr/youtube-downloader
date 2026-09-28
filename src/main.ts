@@ -3,17 +3,25 @@ import { createToolbar } from './ui/toolbar';
 import { createUrlInput } from './ui/url-input';
 import { createQueueTable } from './ui/queue-table';
 import { createStatusBar } from './ui/status-bar';
+import { createSettingsDialog } from './ui/settings-dialog';
+import { createConfirmClose } from './ui/confirm-close';
 import {
   addUrls,
   chooseFolder,
-  getSaveFolder,
+  clearCompleted,
+  confirmClose,
+  getSettings,
   moveRow,
+  onCloseRequest,
   onNotice,
   onRows,
   removeRows,
+  saveSettings,
   selectField,
+  startDownloads,
+  stopDownloads,
 } from './bridge';
-import { select, setRows, state } from './state';
+import { hasCompletedRow, hasReadyRow, isDownloadActive, select, setRows, state } from './state';
 
 const theme = new ThemeManager('dark');
 
@@ -25,10 +33,16 @@ function renderAll(): void {
   statusBar.render(state.rows);
   toolbar.setRemoveEnabled(state.selectedId !== null);
   toolbar.setMoveEnabled(state.selectedId !== null);
+  toolbar.setStartEnabled(hasReadyRow(state.rows) && !isDownloadActive(state.rows));
+  toolbar.setStopEnabled(isDownloadActive(state.rows));
+  toolbar.setClearCompletedEnabled(hasCompletedRow(state.rows));
 }
 
 const toolbar = createToolbar(theme, {
-  onToggleTheme: () => theme.toggleTheme(),
+  onToggleTheme: () => {
+    const next = theme.toggleTheme();
+    void saveSettings({ theme: next });
+  },
   onRemoveSelected: () => {
     if (state.selectedId) {
       void removeRows([state.selectedId]);
@@ -44,6 +58,12 @@ const toolbar = createToolbar(theme, {
   },
   onMoveDown: () => {
     if (state.selectedId) void moveRow(state.selectedId, 1);
+  },
+  onStart: () => void startDownloads(),
+  onStop: () => void stopDownloads(),
+  onClearCompleted: () => void clearCompleted(),
+  onOpenSettings: () => {
+    void getSettings().then((current) => settingsDialog.open(current));
   },
 });
 
@@ -65,10 +85,20 @@ const queueTable = createQueueTable({
 
 const statusBar = createStatusBar();
 
+const settingsDialog = createSettingsDialog((patch) => {
+  void saveSettings(patch);
+});
+
+const confirmCloseDialog = createConfirmClose((keepDownloading) => {
+  void confirmClose(keepDownloading);
+});
+
 root.appendChild(toolbar.element);
 root.appendChild(urlInput);
 root.appendChild(queueTable.element);
 root.appendChild(statusBar.element);
+root.appendChild(settingsDialog.element);
+root.appendChild(confirmCloseDialog.element);
 
 const app = document.getElementById('app');
 if (app) {
@@ -82,4 +112,9 @@ onRows((rows) => {
 
 onNotice((notice) => statusBar.showNotice(notice));
 
-void getSaveFolder().then((path) => toolbar.setFolderPath(path));
+onCloseRequest(() => confirmCloseDialog.open());
+
+void getSettings().then((settings) => {
+  theme.setTheme(settings.theme);
+  toolbar.setFolderPath(settings.save_folder);
+});

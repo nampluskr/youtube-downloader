@@ -25,17 +25,35 @@ export function summary(rows: RowSnapshot[]): string {
   if (rows.length === 0) return '0 items';
   const counts: Record<string, number> = {};
   for (const row of rows) {
-    counts[row.status] = (counts[row.status] || 0) + 1;
+    // D-28: "Exists" counts as done in this summary.
+    const key = row.status === 'exists' ? 'done' : row.status;
+    counts[key] = (counts[key] || 0) + 1;
   }
   const labels: Record<string, string> = {
     queued: 'queued',
     fetching: 'fetching',
     ready: 'ready',
+    downloading: 'downloading',
+    merging: 'merging',
+    done: 'done',
     failed: 'failed',
+    canceled: 'canceled',
   };
   const parts = [`${rows.length} items`];
-  for (const key of ['queued', 'fetching', 'ready', 'failed']) {
+  for (const key of ['queued', 'fetching', 'ready', 'downloading', 'merging', 'done', 'failed', 'canceled']) {
     if (counts[key]) parts.push(`${counts[key]} ${labels[key]}`);
   }
   return parts.join('  ');
+}
+
+export function hasReadyRow(rows: RowSnapshot[]): boolean {
+  return rows.some((r) => r.status === 'ready');
+}
+
+export function hasCompletedRow(rows: RowSnapshot[]): boolean {
+  return rows.some((r) => r.status === 'done' || r.status === 'exists');
+}
+
+export function isDownloadActive(rows: RowSnapshot[]): boolean {
+  return rows.some((r) => r.status === 'downloading' || r.status === 'merging');
 }

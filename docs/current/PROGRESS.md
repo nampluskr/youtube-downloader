@@ -197,4 +197,84 @@
 - **Phase 4는 필수 통과 대상**(PLAN.md 적대적 검증 절). 아래 반대 벤더(Codex) 검증
   기록은 `docs/reviews/A4.md`를 본다.
 
+### Phase 5 · 다운로드 실행과 진행 상태 연결 (2026-09-28)
+
+**무엇을**
+- `src/hosts/pywebview/queue.py` — `DOWNLOADING`·`MERGING`·`DONE`·`EXISTS`·`CANCELED`
+  상태와 `downloaded_bytes`·`total_bytes`·`speed`·`eta`를 `Row`에 추가(NFR-6: backend가
+  값을 안 줄 때 항상 `None`, 추정하지 않는다). `QueueManager.claim_next_ready_row()`가
+  맨 위 Ready 행을 락 안에서 원자적으로 `Downloading`으로 바꿔 반환한다 — 이렇게 해야
+  `select()`가 "Ready 상태가 아니면 무시"하는 규칙과 경쟁하지 않는다(`docs/reviews/A4.md`
+  발견 #4의 순서 문제를 여기도 같은 방식으로 적용, D-13). `clear_completed()`(FR-29,
+  Done·Exists만 지움)·`mark_downloading`·`mark_merging`·`mark_done`(재사용 여부로
+  Done/Exists 분기)·`mark_canceled`·`remove()`가 삭제된 Row 목록을 반환하도록 변경(FR-27:
+  다운로드 중인 행이 삭제되면 취소 이벤트를 걸어야 하므로).
+- `src/hosts/pywebview/workers.py`의 `DownloadRunner` — 순차 실행기(D-13, FR-23).
+  한 번에 한 행만, 매 스텝마다 큐를 다시 스캔해 맨 위부터 진행하므로 실행 중 `move()`도
+  아직 시작 안 한 행에는 그대로 반영된다. `video_id`+`audio_id`가 둘 다 있으면
+  `yk.video()`, 영상만 `None`(D-17)이면 `yk.audio()`만(FR-15), 자막이 선택돼 있으면
+  `yk.subtitle()`을 추가로 호출 — 영상·음성 둘 다 `None`이면 자막 호출만 남는다.
+  `progress` 콜백이 `stage: "download"|"merge"`를 큐에 반영해 다운로드/병합 단계를
+  구분한다(FR-31). `cancel` `threading.Event`를 `stop()`(FR-28, 현재 행만 취소하고 다음
+  행은 시작 안 함)과 `cancel_row()`(FR-27, 삭제된 행이 지금 받는 중이면 취소)가 공유한다.
+  포맷을 이용할 수 없는 예외(`yk.YoutubeKitError` 등)는 그대로 실패로 남기고 다른
+  포맷으로 조용히 대체하지 않는다(NFR-6).
+- `src/hosts/pywebview/settings.py`(신규) — `container`(auto/mp4/mkv, D-23)·
+  `subtitle_format`·`preferred_language`·`window_width/height`·`theme`를
+  `~/.youtube-downloader/settings.json`에 원자적 저장(tmp 파일 후 `os.replace`)한다.
+  기존 행에는 소급 적용하지 않고 새 행·다음 실행부터만 적용된다(FR-32).
+- `src/hosts/pywebview/api.py` — `start`·`stop`·`is_downloading`·`clear_completed`·
+  `get_settings`·`save_settings`·`choose_folder`(폴더 선택도 이제 설정에 저장)·
+  `should_force_close`·`confirm_close` 추가. `choose_folder`가 이제 저장 폴더를 설정에
+  영속화한다. `_on_resized`가 창 크기를 설정에 저장한다.
+- `src/hosts/pywebview/main.py` — 창 `closing` 이벤트가 다운로드 중이면 OS 종료를 막고
+  프런트의 확인 대화상자를 띄운다(FR-33). 사용자가 "Close"를 고르면 `confirm_close`가
+  실행 중인 다운로드를 정지시키고 창을 닫는다(부분 파일이 안 남도록 `stop()`을 거친다).
+- 프런트: `src/ui/settings-dialog.ts`(신규, Container/Subtitle Format/Subtitle Language)·
+  `src/ui/confirm-close.ts`(신규, "Keep Downloading"이 기본 선택지)·`queue-table.ts`가
+  Downloading 행에 퍼센트 진행 바와 속도·ETA를 표시하고 Merging은 별도 스피너로
+  구분해 보여준다(FR-31). `toolbar.ts`에 Clear Completed 버튼과 Settings 버튼 추가.
+  `main.ts`가 Start/Stop 버튼의 활성 조건(Ready 행 존재 여부·다운로드 진행 여부)과
+  Clear Completed 활성 조건(완료 행 존재 여부)을 큐 상태에서 계산해 반영한다.
+
+**결과**
+- `npm run typecheck`, `npm run build` 통과.
+- `tests/test_downloads.py`(11개, 신규) — 영상+음성 다운로드 후 Done, 이미 있는 파일
+  재사용 시 Exists(FR-25), 영상 `None`이면 음성만(FR-15), 자막 선택 시 트랙·형식이
+  그대로 전달되고 `None`이면 자막 호출 자체가 없음(FR-19), 진행 이벤트가 행에
+  반영되고 병합 단계가 다운로드 단계와 구분됨(FR-31), Stop이 진행 중 다운로드를
+  취소하고 부분 파일 없이 Canceled로 남음(FR-28), 다운로드 중 행 삭제가 취소하고
+  행이 사라진 채로 유지됨(부활 없음, FR-27), 실패한 행이 있어도 다른 행이 이어서
+  진행되고 실패 행을 식별 가능(FR-34), 4개 행이 순서대로 한 번에 하나씩만 받아짐
+  (동시 실행 없음 확인, D-13), 설정한 컨테이너 값이 `yk.video()`에 그대로 전달됨(D-23).
+  전체 `tests/` 49개 통과(Phase 1~4의 38개 포함).
+- `python -m src.hosts.pywebview.main`으로 창이 뜨고 예외 없이 종료됨.
+- 실제 네트워크로 `Api`를 통해 짧은 Shorts 영상(`JyEsEcsCqzM`, YouTube Shorts) 1개를
+  최저 해상도로 선택해 처음부터 끝까지 받아 봄: `add_urls` → `Ready` → 해상도/코덱
+  선택 → `start()` → `Done`까지 실제로 진행되었고, `<저장 폴더>\JyEsEcsCqzM\`에
+  `JyEsEcsCqzM.602_140.mkv`(1.24MB, 영상+음성 병합 결과)와 `.meta.json`이 실제로
+  생성됨을 확인(스모크 후 삭제). 재사용(`이미 있음`) 경로는 실제 네트워크로는
+  재확인하지 못했고 위 `test_reused_file_marks_exists_and_new_download_marks_done`으로만
+  확인했다 — 다음 상호작용 세션에서 실제 재다운로드로 재확인 필요.
+- `src/*.ts`, `src/ui/*.ts`, `src/**/*.css`에서 한글 문자 없음을 확인(`src/hosts/pywebview/
+  *.py`의 한글은 주석·docstring뿐이며 화면 표시 문자열이 아니다).
+- 설정 대화상자·닫기 확인 대화상자의 실제 클릭 상호작용(GUI)은 이번 세션에서 코드
+  경로만 확인했고 실제 마우스 클릭으로는 열어보지 못했다 — Phase 2의 `choose_folder`
+  대화상자와 같은 제약. 다음 상호작용 세션에서 재확인 필요.
+
+**검증**
+- PLAN.md Phase 5 완료 조건 15개(첫 단락 7개 + 세부 8개) 대조: 순서대로 한 행씩 다운로드
+  (D-13, 자동화 테스트+실제 스모크), `<저장 폴더>\<영상 ID>\` 저장(실제 스모크로 확인),
+  영상 `None`→음성만·영상+음성 `None`→자막만(FR-15, 자동화 테스트), 받는 중 삭제·전체
+  정지 후 부분 파일 없음(자동화 테스트, `yk.video`가 `Cancelled`를 던지면 그 함수
+  내부에서 부분 파일을 정리한다고 가정 — youtube-kit README 기준), 완료 행 일괄 삭제
+  (`clear_completed`, 코드 경로 확인), 이미 있으면 `Exists`로 끝나고 하단 요약에서
+  완료로 셈(D-28, `state.ts`), 컨테이너·자막 형식 설정대로 저장(자동화 테스트), 설정
+  유지·큐 빔·닫기 확인(설정 파일 영속화·`confirm_close` 코드 경로 확인, GUI 상호작용은
+  미확인) — 자동화된 테스트·실제 네트워크 스모크·코드 검토로 확인. 포맷 ID 기준 다운로드,
+  자막 트랙 전달, 진행 상태 갱신, 속도/ETA 반영, 병합 단계 구분, 성공/실패 상태,
+  포맷 대체 금지(NFR-6) — 모두 자동화 테스트로 확인.
+- **Phase 5는 필수 통과 대상**(PLAN.md 적대적 검증 절). 반대 벤더(Codex) 검증은 다음
+  단계에서 진행한다.
+
 ## 2. 계획 외 개선

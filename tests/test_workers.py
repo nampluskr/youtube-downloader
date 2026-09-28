@@ -75,7 +75,7 @@ def test_playlist_saves_playlist_json_under_list_id_folder(monkeypatch, tmp_path
         return {"title": "T"}
 
     api = make_api(monkeypatch, fake_info)
-    api._save_folder = str(tmp_path)
+    api._settings["save_folder"] = str(tmp_path)
     api.add_urls("https://www.youtube.com/playlist?list=PLfolder")
 
     assert wait_until(lambda: len(calls) == 1)

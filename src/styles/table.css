@@ -196,6 +196,110 @@
 .status-icon.status-error { color: var(--status-error-fg); }
 .status-icon.status-progress { color: var(--status-progress-fg); }
 
+.status-detail {
+  font-size: 11px;
+  opacity: 0.75;
+  margin-top: 2px;
+}
+
+.status-progress-bar {
+  width: 90px;
+  height: 4px;
+  border-radius: 2px;
+  background-color: var(--border-color);
+  overflow: hidden;
+  margin-bottom: 2px;
+}
+
+.status-progress-fill {
+  height: 100%;
+  background-color: var(--status-progress-fg);
+}
+
+/* Modal dialogs (Settings, confirm-close) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-dialog {
+  min-width: 320px;
+  background-color: var(--menu-bg);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 16px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.35);
+}
+
+.modal-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.modal-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.modal-input {
+  flex: 0 0 auto;
+  width: 160px;
+  height: 22px;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  border-radius: 2px;
+  padding: 0 5px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.modal-btn {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 2px;
+  border: 1px solid var(--border-color);
+  background-color: transparent;
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.modal-btn:hover {
+  background-color: var(--button-hover-bg);
+}
+
+.modal-btn-primary {
+  background-color: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+}
+
+.confirm-close-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  max-width: 280px;
+}
+
 /* 4. Status bar */
 .app-statusbar {
   height: var(--statusbar-height);
