@@ -1,0 +1,66 @@
+import { ThemeManager } from '../core/theme';
+
+export interface ToolbarCallbacks {
+  onToggleTheme: () => void;
+}
+
+function iconButton(icon: string, tooltip: string, id: string): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.id = id;
+  btn.className = 'toolbar-btn';
+  btn.title = tooltip;
+  btn.disabled = true;
+  const i = document.createElement('i');
+  i.className = `codicon codicon-${icon}`;
+  btn.appendChild(i);
+  return btn;
+}
+
+export function createToolbar(theme: ThemeManager, callbacks: ToolbarCallbacks): HTMLElement {
+  const toolbar = document.createElement('div');
+  toolbar.className = 'app-toolbar';
+
+  const runGroup = document.createElement('div');
+  runGroup.className = 'toolbar-group';
+  runGroup.appendChild(iconButton('play', 'Start', 'toolbar-start'));
+  runGroup.appendChild(iconButton('debug-stop', 'Stop', 'toolbar-stop'));
+
+  const rowGroup = document.createElement('div');
+  rowGroup.className = 'toolbar-group';
+  rowGroup.appendChild(iconButton('arrow-up', 'Move Up', 'toolbar-move-up'));
+  rowGroup.appendChild(iconButton('arrow-down', 'Move Down', 'toolbar-move-down'));
+  rowGroup.appendChild(iconButton('trash', 'Remove', 'toolbar-remove'));
+  rowGroup.appendChild(iconButton('clear-all', 'Clear Completed', 'toolbar-clear-completed'));
+
+  const folderBtn = document.createElement('button');
+  folderBtn.id = 'toolbar-choose-folder';
+  folderBtn.className = 'toolbar-folder';
+  folderBtn.title = 'Choose Folder';
+  folderBtn.disabled = true;
+  const folderIcon = document.createElement('i');
+  folderIcon.className = 'codicon codicon-folder';
+  const folderPath = document.createElement('span');
+  folderPath.className = 'toolbar-folder-path';
+  folderPath.id = 'toolbar-folder-path';
+  folderPath.textContent = 'Downloads';
+  folderBtn.appendChild(folderIcon);
+  folderBtn.appendChild(folderPath);
+
+  const spacer = document.createElement('div');
+  spacer.className = 'toolbar-spacer';
+
+  const themeBtn = iconButton('color-mode', 'Toggle Theme', 'toolbar-toggle-theme');
+  themeBtn.disabled = false;
+  themeBtn.addEventListener('click', () => callbacks.onToggleTheme());
+
+  const settingsBtn = iconButton('gear', 'Settings', 'toolbar-settings');
+
+  toolbar.appendChild(runGroup);
+  toolbar.appendChild(rowGroup);
+  toolbar.appendChild(folderBtn);
+  toolbar.appendChild(spacer);
+  toolbar.appendChild(themeBtn);
+  toolbar.appendChild(settingsBtn);
+
+  return toolbar;
+}

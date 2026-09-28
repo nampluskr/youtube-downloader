@@ -1,0 +1,29 @@
+{
+  "name": "youtube-downloader",
+  "version": "0.1.0",
+  "private": true,
+  "description": "YouTube video/playlist download queue desktop app",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "start:pywebview": "python -m src.hosts.pywebview.main",
+    "package:pywebview": "npm run build && python -m PyInstaller youtube-downloader.spec --noconfirm --distpath dist-py --workpath build-py"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0"
+  },
+  "dependencies": {
+    "@vscode/codicons": "^0.0.46-24"
+  }
+}

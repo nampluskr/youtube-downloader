@@ -1,0 +1,188 @@
+.app-root {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 1. Toolbar */
+.app-toolbar {
+  height: var(--toolbar-height);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  background-color: var(--titlebar-bg);
+  color: var(--titlebar-fg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.toolbar-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 3px;
+  font-size: 16px;
+  padding: 0;
+  outline: none;
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  background-color: var(--button-hover-bg);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.toolbar-folder {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  height: 26px;
+  border-radius: 3px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  max-width: 260px;
+  outline: none;
+}
+
+.toolbar-folder:hover {
+  background-color: var(--button-hover-bg);
+}
+
+.toolbar-folder-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+/* 2. URL input */
+.app-urlbar {
+  height: var(--urlbar-height);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  background-color: var(--bg-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.urlbar-input {
+  flex: 1;
+  height: 22px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  border-radius: 2px;
+  padding: 0 7px;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.urlbar-input:focus {
+  border-color: var(--focus-ring);
+}
+
+/* 3. Queue table */
+.app-main {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-color);
+}
+
+.queue-table-wrap {
+  flex: 1;
+  overflow: auto;
+}
+
+.queue-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.queue-table thead th {
+  position: sticky;
+  top: 0;
+  text-align: left;
+  padding: 5px 8px;
+  background-color: var(--menu-bg);
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.queue-table tbody td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.queue-table tbody tr {
+  cursor: pointer;
+}
+
+.queue-table tbody tr:hover {
+  background-color: var(--button-hover-bg);
+}
+
+.queue-table tbody tr.selected {
+  background-color: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+}
+
+.queue-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+}
+
+.status-icon.status-success { color: var(--status-success-fg); }
+.status-icon.status-error { color: var(--status-error-fg); }
+.status-icon.status-progress { color: var(--status-progress-fg); }
+
+/* 4. Status bar */
+.app-statusbar {
+  height: var(--statusbar-height);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  background-color: var(--statusbar-bg);
+  color: var(--statusbar-fg);
+  font-size: 12px;
+}

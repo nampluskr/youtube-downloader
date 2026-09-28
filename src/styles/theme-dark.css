@@ -1,0 +1,31 @@
+/* VS Code Dark Modern — copied from workbench-kit's pywebview branch
+   src/style.css [data-theme="dark"] block (D-30, NFR-9). Only the tokens
+   this app actually uses are copied; the app-specific status colors
+   (--status-success-fg etc.) are new additions, not part of the match. */
+:root,
+[data-theme="dark"] {
+  --bg-color: #1f1f1f;
+  --text-color: #cccccc;
+  --titlebar-bg: #505050;
+  --titlebar-fg: #e0e0e0;
+  --statusbar-bg: #505050;
+  --statusbar-fg: #e0e0e0;
+  --border-color: #2b2b2b;
+  --button-hover-bg: rgba(255, 255, 255, 0.1);
+  --menu-bg: #272727;
+  --menu-hover-bg: #454545;
+  --menu-hover-fg: #ffffff;
+  --tab-active-bg: #4e4e4e;
+  --tab-active-fg: #ffffff;
+  --tab-inactive-bg: #1f1f1f;
+  --tab-inactive-fg: #cccccc;
+  --focus-ring: #7a7a7a;
+  --scrollbar-track: rgba(255, 255, 255, 0.04);
+  --scrollbar-thumb: rgba(204, 204, 204, 0.28);
+  --scrollbar-thumb-hover: rgba(204, 204, 204, 0.46);
+  --scrollbar-thumb-active: rgba(204, 204, 204, 0.66);
+
+  --status-success-fg: #89d185;
+  --status-error-fg: #f48771;
+  --status-progress-fg: #3794ff;
+}

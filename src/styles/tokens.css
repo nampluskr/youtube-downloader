@@ -1,0 +1,28 @@
+@import '@vscode/codicons/dist/codicon.css';
+
+/* Font stack and common spacing tokens — copied from workbench-kit's
+   pywebview branch src/style.css (D-30, NFR-9). */
+:root {
+  --font-family: system-ui, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+  --area-size: 30px;
+  --toolbar-height: var(--area-size);
+  --statusbar-height: var(--area-size);
+  --urlbar-height: var(--area-size);
+  --close-hover-bg: #e81123;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-family: var(--font-family);
+  font-size: 13px;
+}

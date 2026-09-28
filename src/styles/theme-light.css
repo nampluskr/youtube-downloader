@@ -1,0 +1,30 @@
+/* VS Code Light Modern — copied from workbench-kit's pywebview branch
+   src/style.css [data-theme="light"] block (D-30, NFR-9). Only the tokens
+   this app actually uses are copied; the app-specific status colors
+   (--status-success-fg etc.) are new additions, not part of the match. */
+[data-theme="light"] {
+  --bg-color: #ffffff;
+  --text-color: #3b3b3b;
+  --titlebar-bg: #d8d8d8;
+  --titlebar-fg: #333333;
+  --statusbar-bg: #d8d8d8;
+  --statusbar-fg: #333333;
+  --border-color: #e5e5e5;
+  --button-hover-bg: rgba(0, 0, 0, 0.07);
+  --menu-bg: #ffffff;
+  --menu-hover-bg: #e0e0e0;
+  --menu-hover-fg: #1f1f1f;
+  --tab-active-bg: #d8d8d8;
+  --tab-active-fg: #1f1f1f;
+  --tab-inactive-bg: #ffffff;
+  --tab-inactive-fg: #6c6c6c;
+  --focus-ring: #8a8a8a;
+  --scrollbar-track: rgba(0, 0, 0, 0.03);
+  --scrollbar-thumb: rgba(100, 100, 100, 0.35);
+  --scrollbar-thumb-hover: rgba(100, 100, 100, 0.55);
+  --scrollbar-thumb-active: rgba(100, 100, 100, 0.78);
+
+  --status-success-fg: #587c0c;
+  --status-error-fg: #a1260d;
+  --status-progress-fg: #005fb8;
+}
