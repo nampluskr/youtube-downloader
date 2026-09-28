@@ -25,6 +25,11 @@ class Row:
     status: str = QUEUED
     error: Optional[str] = None
     info: Optional[dict] = field(default=None, repr=False)
+    resolution_label: str = ""
+    codec_label: str = ""
+    audio_label: str = ""
+    subtitle_label: str = ""
+    size_label: str = "-"
 
     def snapshot(self) -> dict:
         return {
@@ -33,6 +38,11 @@ class Row:
             "title": self.title or self.id,
             "status": self.status,
             "error": self.error,
+            "resolution": self.resolution_label,
+            "codec": self.codec_label,
+            "audio": self.audio_label,
+            "subtitle": self.subtitle_label,
+            "size": self.size_label,
         }
 
 
@@ -66,8 +76,19 @@ class QueueManager:
     def mark_fetching(self, row_id: str) -> None:
         self._update(row_id, status=FETCHING, error=None)
 
-    def mark_ready(self, row_id: str, title: str, info: dict) -> None:
-        self._update(row_id, status=READY, title=title, info=info, error=None)
+    def mark_ready(self, row_id: str, title: str, info: dict, defaults: dict) -> None:
+        self._update(
+            row_id,
+            status=READY,
+            title=title,
+            info=info,
+            error=None,
+            resolution_label=defaults["resolution_label"],
+            codec_label=defaults["codec_label"],
+            audio_label=defaults["audio_label"],
+            subtitle_label=defaults["subtitle_label"],
+            size_label=defaults["size_label"],
+        )
 
     def mark_failed(self, row_id: str, error: str) -> None:
         self._update(row_id, status=FAILED, error=error)

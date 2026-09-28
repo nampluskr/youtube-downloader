@@ -4,6 +4,11 @@ export interface RowSnapshot {
   title: string;
   status: 'queued' | 'fetching' | 'ready' | 'failed';
   error: string | null;
+  resolution: string;
+  codec: string;
+  audio: string;
+  subtitle: string;
+  size: string;
 }
 
 export interface Notice {

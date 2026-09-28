@@ -14,7 +14,7 @@ from youtube_kit.url import parse_and_normalize_url
 from src.hosts.pywebview.events import Events
 from src.hosts.pywebview.queue import QueueManager
 from src.hosts.pywebview.storage import default_save_folder
-from src.hosts.pywebview.workers import FetchPool
+from src.hosts.pywebview.workers import FetchPool, PlaylistExpander
 
 
 class Api:
@@ -23,6 +23,7 @@ class Api:
         self._events: Optional[Events] = None
         self._queue = QueueManager(on_change=self._push_rows)
         self._pool = FetchPool(self._queue)
+        self._playlists = PlaylistExpander(self._queue, self._pool)
         self._window = None
 
     def bind(self, window) -> None:
@@ -37,6 +38,7 @@ class Api:
         duplicates = 0
         invalid = 0
         new_rows = []
+        playlists = []
 
         for line in (text or "").splitlines():
             line = line.strip()
@@ -48,10 +50,8 @@ class Api:
                 invalid += 1
                 continue
 
-            if url_type != "video":
-                # Playlist expansion is Phase 3 (FR-3/4). A playlist URL is a
-                # valid YouTube URL, so it is not counted as invalid input;
-                # it simply does not create a row yet.
+            if url_type == "playlist":
+                playlists.append({"id": item_id, "url": std_url})
                 continue
 
             if self._queue.has_row(item_id) or any(r["id"] == item_id for r in new_rows):
@@ -63,6 +63,9 @@ class Api:
         for entry in new_rows:
             row = self._queue.add_row(entry["id"], entry["url"])
             self._pool.submit(row, self._save_folder)
+
+        for playlist in playlists:
+            self._playlists.submit(playlist["id"], playlist["url"], self._save_folder, self._push_notice)
 
         if self._events:
             self._events.notice(duplicates, invalid)
@@ -91,3 +94,7 @@ class Api:
     def _push_rows(self) -> None:
         if self._events:
             self._events.rows(self._queue.snapshot())
+
+    def _push_notice(self, duplicates: int, invalid: int) -> None:
+        if self._events:
+            self._events.notice(duplicates, invalid)

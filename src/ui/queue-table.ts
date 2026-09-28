@@ -95,19 +95,19 @@ export function createQueueTable(callbacks: QueueTableCallbacks): QueueTableHand
       titleCell.title = `${row.title}\n${row.id}`;
 
       const resolutionCell = document.createElement('td');
-      resolutionCell.textContent = '';
+      resolutionCell.textContent = row.resolution;
 
       const codecCell = document.createElement('td');
-      codecCell.textContent = '';
+      codecCell.textContent = row.codec;
 
       const audioCell = document.createElement('td');
-      audioCell.textContent = '';
+      audioCell.textContent = row.audio;
 
       const subtitleCell = document.createElement('td');
-      subtitleCell.textContent = '';
+      subtitleCell.textContent = row.subtitle;
 
       const sizeCell = document.createElement('td');
-      sizeCell.textContent = '-';
+      sizeCell.textContent = row.size;
 
       tr.appendChild(indexCell);
       tr.appendChild(titleCell);
