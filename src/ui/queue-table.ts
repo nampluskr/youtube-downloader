@@ -1,6 +1,7 @@
-import type { RowSnapshot } from '../bridge';
+import type { RowSnapshot, SelectField } from '../bridge';
 
 const COLUMNS = ['#', 'Title', 'Resolution', 'Codec', 'Audio', 'Subtitle', 'Size', 'Status'];
+const NONE_VALUE = '__none__';
 
 export interface QueueTableHandle {
   element: HTMLElement;
@@ -9,6 +10,7 @@ export interface QueueTableHandle {
 
 export interface QueueTableCallbacks {
   onSelect: (id: string) => void;
+  onSelectField: (rowId: string, field: SelectField, value: string | null) => void;
 }
 
 function statusCell(row: RowSnapshot): HTMLElement {
@@ -36,6 +38,34 @@ function statusCell(row: RowSnapshot): HTMLElement {
 
   if (icon.className) cell.appendChild(icon);
   cell.appendChild(label);
+  return cell;
+}
+
+function selectCell(
+  options: Array<{ value: string; label: string }>,
+  selected: string | null,
+  enabled: boolean,
+  onChange: (value: string | null) => void,
+): HTMLElement {
+  const cell = document.createElement('td');
+  const select = document.createElement('select');
+  select.className = 'row-select';
+  select.disabled = !enabled;
+
+  for (const opt of options) {
+    const optionEl = document.createElement('option');
+    optionEl.value = opt.value;
+    optionEl.textContent = opt.label;
+    select.appendChild(optionEl);
+  }
+  select.value = selected ?? NONE_VALUE;
+
+  select.addEventListener('click', (event) => event.stopPropagation());
+  select.addEventListener('change', () => {
+    onChange(select.value === NONE_VALUE ? null : select.value);
+  });
+
+  cell.appendChild(select);
   return cell;
 }
 
@@ -94,17 +124,44 @@ export function createQueueTable(callbacks: QueueTableCallbacks): QueueTableHand
       titleCell.textContent = row.title;
       titleCell.title = `${row.title}\n${row.id}`;
 
-      const resolutionCell = document.createElement('td');
-      resolutionCell.textContent = row.resolution;
+      const editable = row.status === 'ready';
 
-      const codecCell = document.createElement('td');
-      codecCell.textContent = row.codec;
+      const resolutionOptions = [
+        { value: NONE_VALUE, label: 'None' },
+        ...row.videoOptions.map((o) => ({ value: o.key, label: o.label })),
+      ];
+      const resolutionCell = selectCell(resolutionOptions, row.selectedResolutionKey, editable, (value) =>
+        callbacks.onSelectField(row.id, 'resolution', value),
+      );
 
-      const audioCell = document.createElement('td');
-      audioCell.textContent = row.audio;
+      const currentVideoOption = row.videoOptions.find((o) => o.key === row.selectedResolutionKey);
+      const codecOptions = (currentVideoOption?.codecs ?? []).map((c) => ({ value: c.id, label: c.label }));
+      const codecCell = selectCell(
+        codecOptions,
+        row.selectedVideoFormatId,
+        editable && codecOptions.length > 0,
+        (value) => callbacks.onSelectField(row.id, 'codec', value),
+      );
+      if (codecOptions.length === 0) {
+        codecCell.textContent = '-';
+      }
 
-      const subtitleCell = document.createElement('td');
-      subtitleCell.textContent = row.subtitle;
+      // D-17: "None" audio is only offered while no video format is selected.
+      const audioOptions = [
+        ...(row.selectedVideoFormatId ? [] : [{ value: NONE_VALUE, label: 'None' }]),
+        ...row.audioOptions.map((o) => ({ value: o.id, label: o.label })),
+      ];
+      const audioCell = selectCell(audioOptions, row.selectedAudioFormatId, editable, (value) =>
+        callbacks.onSelectField(row.id, 'audio', value),
+      );
+
+      const subtitleOptions = [
+        { value: NONE_VALUE, label: 'None' },
+        ...row.subtitleOptions.map((o) => ({ value: o.id, label: o.label })),
+      ];
+      const subtitleCell = selectCell(subtitleOptions, row.selectedSubtitleId, editable, (value) =>
+        callbacks.onSelectField(row.id, 'subtitle', value),
+      );
 
       const sizeCell = document.createElement('td');
       sizeCell.textContent = row.size;

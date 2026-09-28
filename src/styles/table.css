@@ -162,6 +162,28 @@
   color: var(--tab-active-fg);
 }
 
+.row-select {
+  width: 100%;
+  max-width: 140px;
+  height: 22px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.row-select:hover:not(:disabled) {
+  border-color: var(--border-color);
+}
+
+.row-select:disabled {
+  opacity: 0.6;
+  border-color: transparent;
+}
+
 .queue-empty {
   flex: 1;
   display: flex;

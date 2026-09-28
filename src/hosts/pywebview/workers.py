@@ -24,25 +24,30 @@ class FetchPool:
         self._executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_FETCHES)
 
     def submit(self, row: Row, save_folder: str) -> None:
-        self._queue.mark_fetching(row.id)
+        self._queue.mark_fetching(row)
         self._executor.submit(self._fetch, row, save_folder)
 
     def _fetch(self, row: Row, save_folder: str) -> None:
+        # `row` is the exact object add_row_if_absent() returned — mark_*
+        # matches it by identity, so if this row was removed (and the same
+        # video id re-added as a new Row) in the meantime, this stale result
+        # is silently dropped instead of overwriting the new row (see
+        # docs/reviews/A4.md finding #1).
         out_dir = os.path.join(save_folder, row.id)
         try:
             info = yk.info(row.url, out_dir=out_dir)
         except yk.InvalidInput as exc:
-            self._queue.mark_failed(row.id, f"Invalid URL: {exc}")
+            self._queue.mark_failed(row, f"Invalid URL: {exc}")
         except yk.VideoUnavailable as exc:
-            self._queue.mark_failed(row.id, f"Unavailable: {exc}")
+            self._queue.mark_failed(row, f"Unavailable: {exc}")
         except yk.YoutubeKitError as exc:
-            self._queue.mark_failed(row.id, str(exc))
+            self._queue.mark_failed(row, str(exc))
         except Exception as exc:  # unexpected — still keep the row identifiable
-            self._queue.mark_failed(row.id, f"Unexpected error: {exc}")
+            self._queue.mark_failed(row, f"Unexpected error: {exc}")
         else:
             title = info.get("title") or row.id
             defaults = formats.apply_defaults(info)
-            self._queue.mark_ready(row.id, title, info, defaults)
+            self._queue.mark_ready(row, title, info, defaults)
 
     def shutdown(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)
@@ -88,11 +93,11 @@ class PlaylistExpander:
             video_id = entry.get("id")
             if not video_id:
                 continue  # inaccessible entry (no id) — not counted as a row
-            if self._queue.has_row(video_id):
+            video_url = entry.get("url") or f"https://www.youtube.com/watch?v={video_id}"
+            row = self._queue.add_row_if_absent(video_id, video_url)
+            if row is None:
                 duplicates += 1
                 continue
-            video_url = entry.get("url") or f"https://www.youtube.com/watch?v={video_id}"
-            row = self._queue.add_row(video_id, video_url)
             self._fetch_pool.submit(row, save_folder)
 
         if on_notice:

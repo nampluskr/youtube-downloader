@@ -10,6 +10,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from src.hosts.pywebview import formats
 
 QUEUED = "queued"
 FETCHING = "fetching"
@@ -31,6 +32,17 @@ class Row:
     subtitle_label: str = ""
     size_label: str = "-"
 
+    # Selection state (Phase 4). Options are computed once, right after
+    # fetch, from the raw info() result; formats.py never invents formats
+    # outside these lists (NFR-6).
+    video_options: list = field(default_factory=list, repr=False)
+    audio_options: list = field(default_factory=list, repr=False)
+    subtitle_options: list = field(default_factory=list, repr=False)
+    selected_resolution_key: Optional[str] = None
+    selected_video_format_id: Optional[str] = None
+    selected_audio_format_id: Optional[str] = None
+    selected_subtitle_id: Optional[str] = None
+
     def snapshot(self) -> dict:
         return {
             "id": self.id,
@@ -43,6 +55,13 @@ class Row:
             "audio": self.audio_label,
             "subtitle": self.subtitle_label,
             "size": self.size_label,
+            "videoOptions": formats.serialize_video_options(self.video_options),
+            "audioOptions": formats.serialize_audio_options(self.audio_options),
+            "subtitleOptions": self.subtitle_options,
+            "selectedResolutionKey": self.selected_resolution_key,
+            "selectedVideoFormatId": self.selected_video_format_id,
+            "selectedAudioFormatId": self.selected_audio_format_id,
+            "selectedSubtitleId": self.selected_subtitle_id,
         }
 
 
@@ -51,19 +70,35 @@ class QueueManager:
         self._rows: list[Row] = []
         self._lock = threading.Lock()
         self._on_change = on_change
+        # Bumped under _lock on every mutation. Pushed to JS alongside each
+        # snapshot so a push that was computed before a later mutation can
+        # never overwrite a push that already reflects that mutation (a
+        # background fetch thread and the UI thread can both call into this
+        # class concurrently, and evaluate_js() can be slow enough for their
+        # sends to reorder).
+        self._revision = 0
+
+    def snapshot_with_revision(self) -> tuple[int, list[dict]]:
+        with self._lock:
+            return self._revision, [row.snapshot() for row in self._rows]
 
     def snapshot(self) -> list[dict]:
-        with self._lock:
-            return [row.snapshot() for row in self._rows]
+        return self.snapshot_with_revision()[1]
 
     def has_row(self, row_id: str) -> bool:
         with self._lock:
             return any(row.id == row_id for row in self._rows)
 
-    def add_row(self, row_id: str, url: str) -> Row:
-        row = Row(id=row_id, url=url)
+    def add_row_if_absent(self, row_id: str, url: str) -> Optional[Row]:
+        """Atomically checks-then-appends so two callers racing on the same
+        video id (e.g. two playlists sharing a video, or a playlist and a
+        plain paste) can never both add a row for it."""
         with self._lock:
+            if any(r.id == row_id for r in self._rows):
+                return None
+            row = Row(id=row_id, url=url)
             self._rows.append(row)
+            self._revision += 1
         self._notify()
         return row
 
@@ -71,14 +106,15 @@ class QueueManager:
         wanted = set(row_ids)
         with self._lock:
             self._rows = [row for row in self._rows if row.id not in wanted]
+            self._revision += 1
         self._notify()
 
-    def mark_fetching(self, row_id: str) -> None:
-        self._update(row_id, status=FETCHING, error=None)
+    def mark_fetching(self, row: Row) -> None:
+        self._update_row(row, status=FETCHING, error=None)
 
-    def mark_ready(self, row_id: str, title: str, info: dict, defaults: dict) -> None:
-        self._update(
-            row_id,
+    def mark_ready(self, row: Row, title: str, info: dict, defaults: dict) -> None:
+        self._update_row(
+            row,
             status=READY,
             title=title,
             info=info,
@@ -88,20 +124,112 @@ class QueueManager:
             audio_label=defaults["audio_label"],
             subtitle_label=defaults["subtitle_label"],
             size_label=defaults["size_label"],
+            video_options=defaults["video_options"],
+            audio_options=defaults["audio_options"],
+            subtitle_options=defaults["subtitle_options"],
+            selected_resolution_key=defaults["resolution_key"],
+            selected_video_format_id=defaults["video_format_id"],
+            selected_audio_format_id=defaults["audio_format_id"],
+            selected_subtitle_id=defaults["subtitle_track_id"],
         )
 
-    def mark_failed(self, row_id: str, error: str) -> None:
-        self._update(row_id, status=FAILED, error=error)
+    def mark_failed(self, row: Row, error: str) -> None:
+        self._update_row(row, status=FAILED, error=error)
 
-    def _update(self, row_id: str, **fields) -> None:
+    def move(self, row_id: str, delta: int) -> None:
+        """delta -1 = up, +1 = down (FR-13/14). List order IS work order."""
         with self._lock:
-            for row in self._rows:
-                if row.id == row_id:
-                    for key, value in fields.items():
-                        setattr(row, key, value)
-                    break
+            index = next((i for i, r in enumerate(self._rows) if r.id == row_id), None)
+            if index is None:
+                return
+            target = index + delta
+            if target < 0 or target >= len(self._rows):
+                return
+            self._rows[index], self._rows[target] = self._rows[target], self._rows[index]
+            self._revision += 1
+        self._notify()
+
+    def select(self, row_id: str, field_name: str, value: Optional[str]) -> None:
+        """Applies a user's resolution/codec/audio/subtitle choice (FR-7~11).
+
+        Ignores any value that is not one of the row's own real options —
+        never fabricates a selection (NFR-6) — and enforces D-17: audio
+        cannot be set to None while a video format is selected.
+        """
+        with self._lock:
+            row = next((r for r in self._rows if r.id == row_id), None)
+            if row is None or row.status != READY:
+                return
+
+            if field_name == "resolution":
+                if value is None:
+                    row.selected_resolution_key = None
+                    row.selected_video_format_id = None
+                elif any(r["key"] == value for r in row.video_options):
+                    row.selected_resolution_key = value
+                    row.selected_video_format_id = formats.formats_for_resolution_key(
+                        row.video_options, value
+                    )[0]["id"]
+                    if row.selected_audio_format_id is None and row.audio_options:
+                        # D-17: a selected video forbids "None" audio.
+                        audio_fmt = formats.select_default_audio(row.info) or formats.select_fallback_audio(
+                            row.info
+                        )
+                        if audio_fmt:
+                            row.selected_audio_format_id = audio_fmt["id"]
+                else:
+                    return
+            elif field_name == "codec":
+                candidates = formats.formats_for_resolution_key(row.video_options, row.selected_resolution_key)
+                if value is not None and any(f["id"] == value for f in candidates):
+                    row.selected_video_format_id = value
+                else:
+                    return
+            elif field_name == "audio":
+                if value is None:
+                    if row.selected_video_format_id is not None:
+                        return  # D-17
+                    row.selected_audio_format_id = None
+                elif any(o["id"] == value for o in row.audio_options):
+                    row.selected_audio_format_id = value
+                else:
+                    return
+            elif field_name == "subtitle":
+                if value is None:
+                    row.selected_subtitle_id = None
+                elif any(o["id"] == value for o in row.subtitle_options):
+                    row.selected_subtitle_id = value
+                else:
+                    return
             else:
                 return
+
+            labels = formats.relabel(
+                row.info,
+                row.selected_video_format_id,
+                row.selected_audio_format_id,
+                row.selected_subtitle_id,
+            )
+            row.resolution_label = labels["resolution_label"]
+            row.codec_label = labels["codec_label"]
+            row.audio_label = labels["audio_label"]
+            row.subtitle_label = labels["subtitle_label"]
+            row.size_label = labels["size_label"]
+            self._revision += 1
+
+        self._notify()
+
+    def _update_row(self, row: Row, **fields) -> None:
+        """Matches by object identity, not id string: if `row` was removed
+        (and possibly replaced by a new row reusing the same video id), a
+        fetch that was already in flight for the OLD row must not resurrect
+        stale data onto the new one."""
+        with self._lock:
+            if not any(r is row for r in self._rows):
+                return
+            for key, value in fields.items():
+                setattr(row, key, value)
+            self._revision += 1
         self._notify()
 
     def _notify(self) -> None:

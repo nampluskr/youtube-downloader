@@ -19,7 +19,7 @@ class FakeEvents:
         self.rows_calls = []
         self.notices = []
 
-    def rows(self, snapshot):
+    def rows(self, revision, snapshot):
         self.rows_calls.append(snapshot)
 
     def notice(self, duplicates, invalid):

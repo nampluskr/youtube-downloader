@@ -33,3 +33,6 @@ npm-debug.log*
 
 # PyInstaller 산출물 (D-27)
 dist-py/
+
+# Serena MCP 로컬 프로젝트 설정 (도구별 캐시, 커밋 대상 아님)
+.serena/

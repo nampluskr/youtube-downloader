@@ -137,4 +137,64 @@
 - Phase 3는 적대적 검증 필수 통과 대상이 아니며, 반대 벤더 검토도 Phase 4·5·6에만
   집중하기로 사용자와 합의했다(2026-09-28).
 
+### Phase 4 · 행별 포맷 선택과 큐 순서 조작 완성 (2026-09-28)
+
+**무엇을**
+- `src/hosts/pywebview/formats.py` — `video_options()`(FR-7, D-18)를 (height, fps)로
+  묶고, 그 묶음 안에서 **실제로 충돌하는 코덱만** ext 접미사를 붙여 개별 행으로 분리한다
+  (충돌 없는 코덱은 한 "HeightpFPS" 행에 묶여 Codec 드롭다운으로 고른다).
+  `audio_options()`(FR-10, 언어가 여럿일 때만 언어 접미사)·`resolution_key_for_format_id`·
+  `formats_for_resolution_key`·`format_by_id`·`relabel()`(선택이 바뀔 때마다 라벨·크기
+  재계산)·직렬화 헬퍼(`serialize_video_options` 등, 프런트에는 필요한 필드만 보낸다).
+- `src/hosts/pywebview/queue.py` — `Row`에 `video_options`·`audio_options`·
+  `subtitle_options`·선택 ID 4개 추가. `QueueManager.select(row_id, field, value)`가
+  실제 옵션에 없는 값은 조용히 무시하고(NFR-6), 영상이 선택된 행에서 음성 `None`을
+  막으며(D-17), 해상도를 바꾸면 그 해상도의 첫 포맷으로 코덱을 정하고 음성이 `None`이면
+  기본 규칙으로 되돌린다(D-17 불변식 유지). `QueueManager.move(row_id, delta)`가
+  리스트 순서를 그대로 바꿔 표시 순서 = 작업 순서를 유지한다(FR-13·14).
+  `READY` 상태가 아닌 행의 선택은 무시한다.
+- `src/hosts/pywebview/api.py`에 `select`·`move` 메서드 추가.
+- 프런트 `bridge.ts`에 `VideoOption`·`AudioOption`·`SubtitleOption` 타입과
+  `moveRow`·`selectField` 추가. `queue-table.ts`가 Resolution·Codec·Audio·Subtitle
+  칸을 실제 `<select>`로 그린다 — `Ready` 상태에서만 활성화되고, Codec은 현재 선택된
+  해상도의 코덱만, Audio는 영상이 선택돼 있으면 `None` 옵션을 아예 빼고(D-17), 클릭이
+  행 선택(`tr` 클릭)으로 버블링되지 않게 막는다. `toolbar.ts`의 Move Up/Down이 선택
+  행이 있을 때 활성화되고 `move()`를 호출한다.
+
+**계획 외 개선**
+- `video_options()`의 최초 구현은 (height,fps) 그룹 안에서 **한 코덱이라도** ext
+  충돌이 있으면 그룹 전체(다른 코덱까지)를 개별 행으로 쪼갰다. 실제 조회 결과
+  (`tests/fixtures/JyEsEcsCqzM.meta.json`, 1920×1080 세로 영상)로 스모크하다가 발견함
+  — `avc1` 포맷 2개만 충돌했는데 같은 (height,fps)의 `vp09`·`vp9`·`av01`까지 전부
+  `"1920p60 · mp4"` 같은 개별 행으로 흩어져 Codec 드롭다운으로 고를 수 없게 됐다.
+  코덱별로 충돌 여부를 따로 판정하도록 고치고 회귀 테스트
+  (`test_only_the_actually_colliding_codec_is_exploded_on_real_fixture`)를 추가했다.
+  `PROGRESS.md`에 기록한다(계획 밖 발견·수정이므로).
+
+**결과**
+- `npm run typecheck`, `npm run build` 통과.
+- `tests/test_selection.py`(10개, 신규) — D-16 기본 선택이 그대로 유지되는지, 같은
+  해상도·fps·코덱의 ext 충돌이 별도 옵션으로 보이는지, 해상도 변경이 코덱·크기를
+  갱신하는지, 코덱 선택이 현재 해상도로 제한되는지(NFR-6), 영상 선택 중 음성 `None`
+  금지(D-17)와 영상을 다시 고르면 음성 기본값이 복원되는지, 자막 선택/해제와 목록 밖
+  값 무시, 두 행의 선택이 서로 독립적인지(FR-12), 3개 이상 행에서 위/아래 이동이
+  표시 순서를 그대로 바꾸는지(FR-13·14, 경계에서 no-op).
+- `tests/test_formats.py`에 회귀 테스트 1개 추가(위 계획 외 개선 항목). 전체
+  `tests/` 32개 통과.
+- `python -m src.hosts.pywebview.main`으로 창이 뜨고 예외 없이 종료됨.
+- 실제 네트워크로 `Api`를 통해 영상 1개를 조회하고 해상도를 바꿔 봄 — 이 과정에서
+  위 계획 외 개선의 버그를 실제 발견·수정함. 산출물(`Downloads\JyEsEcsCqzM\`)은
+  스모크 후 삭제.
+- `src/**/*.ts`, `src/hosts/pywebview/*.py`에서 한글 문자 없음을 `grep -P`로 재확인.
+
+**검증**
+- PLAN.md Phase 4 완료 조건 10개 대조: 자동 선택+빈 칸(D-16/NFR-6), 해상도에 fps·ext
+  구분 표시(D-18), 영상/음성/자막 `None` 허용과 D-17 제약, 자막 목록 필터(D-20),
+  해상도 변경 가능, 코덱이 실제 제공 코덱만·최종 포맷 ID 하나로 귀결, 음성 실제 트랙
+  선택, 자막 실제 트랙+`None`·수동/자동 구분, 행별 선택 독립성(FR-12), 3개 이상 행의
+  위/아래 이동이 표시·작업 순서를 함께 바꿈(FR-13·14) — 자동화된 테스트와 실제
+  네트워크 스모크로 확인.
+- **Phase 4는 필수 통과 대상**(PLAN.md 적대적 검증 절). 아래 반대 벤더(Codex) 검증
+  기록은 `docs/reviews/A4.md`를 본다.
+
 ## 2. 계획 외 개선

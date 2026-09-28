@@ -11,7 +11,7 @@ class FakeEvents:
     def __init__(self):
         self.notices = []
 
-    def rows(self, snapshot):
+    def rows(self, revision, snapshot):
         pass
 
     def notice(self, duplicates, invalid):

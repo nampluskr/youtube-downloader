@@ -3,7 +3,16 @@ import { createToolbar } from './ui/toolbar';
 import { createUrlInput } from './ui/url-input';
 import { createQueueTable } from './ui/queue-table';
 import { createStatusBar } from './ui/status-bar';
-import { addUrls, chooseFolder, getSaveFolder, onNotice, onRows, removeRows } from './bridge';
+import {
+  addUrls,
+  chooseFolder,
+  getSaveFolder,
+  moveRow,
+  onNotice,
+  onRows,
+  removeRows,
+  selectField,
+} from './bridge';
 import { select, setRows, state } from './state';
 
 const theme = new ThemeManager('dark');
@@ -15,6 +24,7 @@ function renderAll(): void {
   queueTable.render(state.rows, state.selectedId);
   statusBar.render(state.rows);
   toolbar.setRemoveEnabled(state.selectedId !== null);
+  toolbar.setMoveEnabled(state.selectedId !== null);
 }
 
 const toolbar = createToolbar(theme, {
@@ -29,6 +39,12 @@ const toolbar = createToolbar(theme, {
       if (path) toolbar.setFolderPath(path);
     });
   },
+  onMoveUp: () => {
+    if (state.selectedId) void moveRow(state.selectedId, -1);
+  },
+  onMoveDown: () => {
+    if (state.selectedId) void moveRow(state.selectedId, 1);
+  },
 });
 
 const urlInput = createUrlInput({
@@ -41,6 +57,9 @@ const queueTable = createQueueTable({
   onSelect: (id: string) => {
     select(state.selectedId === id ? null : id);
     renderAll();
+  },
+  onSelectField: (rowId, field, value) => {
+    void selectField(rowId, field, value);
   },
 });
 

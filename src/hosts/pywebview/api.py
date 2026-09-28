@@ -37,7 +37,6 @@ class Api:
     def add_urls(self, text: str) -> None:
         duplicates = 0
         invalid = 0
-        new_rows = []
         playlists = []
 
         for line in (text or "").splitlines():
@@ -54,14 +53,13 @@ class Api:
                 playlists.append({"id": item_id, "url": std_url})
                 continue
 
-            if self._queue.has_row(item_id) or any(r["id"] == item_id for r in new_rows):
+            # add_row_if_absent() checks-then-inserts under one lock, so this
+            # can't race a concurrent PlaylistExpander adding the same video
+            # id (docs/reviews/A4.md finding #2).
+            row = self._queue.add_row_if_absent(item_id, std_url)
+            if row is None:
                 duplicates += 1
                 continue
-
-            new_rows.append({"id": item_id, "url": std_url})
-
-        for entry in new_rows:
-            row = self._queue.add_row(entry["id"], entry["url"])
             self._pool.submit(row, self._save_folder)
 
         for playlist in playlists:
@@ -72,6 +70,12 @@ class Api:
 
     def remove(self, row_ids: list[str]) -> None:
         self._queue.remove(row_ids)
+
+    def move(self, row_id: str, delta: int) -> None:
+        self._queue.move(row_id, delta)
+
+    def select(self, row_id: str, field: str, value: Optional[str]) -> None:
+        self._queue.select(row_id, field, value)
 
     def get_save_folder(self) -> str:
         return self._save_folder
@@ -93,7 +97,8 @@ class Api:
 
     def _push_rows(self) -> None:
         if self._events:
-            self._events.rows(self._queue.snapshot())
+            revision, snapshot = self._queue.snapshot_with_revision()
+            self._events.rows(revision, snapshot)
 
     def _push_notice(self, duplicates: int, invalid: int) -> None:
         if self._events:

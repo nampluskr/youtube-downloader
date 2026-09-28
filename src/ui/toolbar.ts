@@ -4,12 +4,15 @@ export interface ToolbarCallbacks {
   onToggleTheme: () => void;
   onRemoveSelected: () => void;
   onChooseFolder: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
 }
 
 export interface ToolbarHandle {
   element: HTMLElement;
   setFolderPath: (path: string) => void;
   setRemoveEnabled: (enabled: boolean) => void;
+  setMoveEnabled: (enabled: boolean) => void;
 }
 
 function iconButton(icon: string, tooltip: string, id: string): HTMLButtonElement {
@@ -35,8 +38,12 @@ export function createToolbar(_theme: ThemeManager, callbacks: ToolbarCallbacks)
 
   const rowGroup = document.createElement('div');
   rowGroup.className = 'toolbar-group';
-  rowGroup.appendChild(iconButton('arrow-up', 'Move Up', 'toolbar-move-up'));
-  rowGroup.appendChild(iconButton('arrow-down', 'Move Down', 'toolbar-move-down'));
+  const moveUpBtn = iconButton('arrow-up', 'Move Up', 'toolbar-move-up');
+  moveUpBtn.addEventListener('click', () => callbacks.onMoveUp());
+  const moveDownBtn = iconButton('arrow-down', 'Move Down', 'toolbar-move-down');
+  moveDownBtn.addEventListener('click', () => callbacks.onMoveDown());
+  rowGroup.appendChild(moveUpBtn);
+  rowGroup.appendChild(moveDownBtn);
 
   const removeBtn = iconButton('trash', 'Remove', 'toolbar-remove');
   removeBtn.addEventListener('click', () => callbacks.onRemoveSelected());
@@ -79,6 +86,10 @@ export function createToolbar(_theme: ThemeManager, callbacks: ToolbarCallbacks)
     },
     setRemoveEnabled: (enabled: boolean) => {
       removeBtn.disabled = !enabled;
+    },
+    setMoveEnabled: (enabled: boolean) => {
+      moveUpBtn.disabled = !enabled;
+      moveDownBtn.disabled = !enabled;
     },
   };
 }

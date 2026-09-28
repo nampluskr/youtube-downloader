@@ -107,6 +107,28 @@ def test_size_label_formats_or_dashes():
     assert formats.size_label(5 * 1024 * 1024) == "5 MB"
 
 
+def test_only_the_actually_colliding_codec_is_exploded_on_real_fixture():
+    """Regression: a (height, fps) group can span several unrelated codecs
+    (avc1/vp9/av01) where only ONE of them collides on ext. Exploding the
+    whole group used to hide vp9/av01 as separate "1920p60 · mp4" rows
+    instead of leaving them selectable via the normal Codec dropdown."""
+    info = load_fixture("JyEsEcsCqzM.meta.json")
+    options = formats.video_options(info)
+    group = [o for o in options if o["height"] == 1920]
+
+    merged = [o for o in group if o["key"] == "1920-60.0"]
+    assert len(merged) == 1
+    codecs_in_merged_row = {formats.codec_label(f) for f in merged[0]["formats"]}
+    assert codecs_in_merged_row == {"vp09", "vp9", "av01"}
+
+    exploded = [o for o in group if o["key"] != "1920-60.0"]
+    assert len(exploded) == 2  # the two colliding avc1 formats (ids 312, 299)
+    for row in exploded:
+        assert len(row["formats"]) == 1
+        assert formats.codec_label(row["formats"][0]) == "avc1"
+        assert "·" in row["label"]
+
+
 def test_apply_defaults_on_real_fixture_never_fabricates_unknown_size():
     info = load_fixture("JyEsEcsCqzM.meta.json")
     result = formats.apply_defaults(info)
