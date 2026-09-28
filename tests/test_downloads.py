@@ -114,6 +114,66 @@ def test_video_none_downloads_audio_only(monkeypatch, tmp_path):
     assert video_calls == []
 
 
+def test_video_and_audio_none_downloads_subtitle_only(monkeypatch, tmp_path):
+    """PLAN.md Phase 5: video None + audio None -> subtitle only (FR-15)."""
+    video_calls = []
+    audio_calls = []
+    subtitle_calls = []
+
+    monkeypatch.setattr(
+        workers_module.yk, "video", lambda *a, **k: video_calls.append(1) or {"status": "ok", "path": "x"}
+    )
+    monkeypatch.setattr(
+        workers_module.yk, "audio", lambda *a, **k: audio_calls.append(1) or {"status": "ok", "path": "x"}
+    )
+
+    def fake_subtitle(url, track, fmt="srt", out_dir=None, progress=None, cancel=None):
+        subtitle_calls.append((track, fmt))
+        return {"status": "ok", "video_id": "x", "url": url, "path": "x"}
+
+    monkeypatch.setattr(workers_module.yk, "subtitle", fake_subtitle)
+
+    api = make_ready_api(monkeypatch, "lllllllllll")
+    api._settings["save_folder"] = str(tmp_path)
+    row_id = row(api)["id"]
+    api.select(row_id, "resolution", None)  # video -> None
+    api.select(row_id, "audio", None)  # audio -> None (only allowed once video is None, D-17)
+    api.select(row_id, "subtitle", "manual:en")
+
+    api.start()
+    assert wait_until(lambda: row(api)["status"] == DONE)
+    assert video_calls == []
+    assert audio_calls == []
+    assert subtitle_calls == [("manual:en", "srt")]
+
+
+def test_clear_completed_removes_only_done_and_exists_rows(monkeypatch, tmp_path):
+    monkeypatch.setattr(workers_module.yk, "video", lambda *a, **k: {"status": "ok", "path": "x"})
+    monkeypatch.setattr(workers_module.yk, "info", lambda url, out_dir=None: INFO)
+
+    api = Api()
+    api._events = FakeEvents()
+    api._settings["save_folder"] = str(tmp_path)
+
+    # First row: download to completion (Done).
+    api.add_urls("https://www.youtube.com/watch?v=mmmmmmmmmmm")
+    assert wait_until(lambda: row(api)["status"] == READY)
+    done_id = row(api)["id"]
+    api.start()
+    assert wait_until(lambda: row(api)["status"] == DONE)
+
+    # Second row: added and fetched, but start() is never called on it again ->
+    # stays Ready, untouched by the download runner.
+    api.add_urls("https://www.youtube.com/watch?v=nnnnnnnnnnn")
+    assert wait_until(lambda: all(r["status"] == READY for r in api._queue.snapshot() if r["id"] != done_id))
+    still_ready_id = next(r["id"] for r in api._queue.snapshot() if r["id"] != done_id)
+
+    api.clear_completed()
+    remaining = api._queue.snapshot()
+    assert [r["id"] for r in remaining] == [still_ready_id]
+    assert remaining[0]["status"] == READY
+
+
 def test_subtitle_selected_downloads_subtitle_track(monkeypatch, tmp_path):
     subtitle_calls = []
 
