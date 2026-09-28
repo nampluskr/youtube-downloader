@@ -6,7 +6,22 @@ import webview
 from src.hosts.pywebview.api import Api
 from src.hosts.pywebview import settings as settings_module
 
-DIST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "dist")
+def _dist_dir() -> str:
+    # A PyInstaller-frozen executable has no real src/hosts/pywebview/main.py
+    # on disk — __file__ resolves inside the temp extraction dir, four levels
+    # up from which is meaningless. sys._MEIPASS is that extraction dir
+    # itself, and youtube-downloader.spec lays dist/ directly under it to
+    # match (workbench-kit's pywebview branch does the same, D-27).
+    # Source-tree execution (`python -m src.hosts.pywebview.main`) is
+    # untouched: sys.frozen is only ever set inside a PyInstaller bundle.
+    if getattr(sys, "frozen", False):
+        root_dir = sys._MEIPASS  # type: ignore[attr-defined]
+    else:
+        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    return os.path.join(root_dir, "dist")
+
+
+DIST_DIR = _dist_dir()
 
 
 def entry_url() -> str:

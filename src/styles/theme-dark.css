@@ -2,7 +2,6 @@
    src/style.css [data-theme="dark"] block (D-30, NFR-9). Only the tokens
    this app actually uses are copied; the app-specific status colors
    (--status-success-fg etc.) are new additions, not part of the match. */
-:root,
 [data-theme="dark"] {
   --bg-color: #1f1f1f;
   --text-color: #cccccc;

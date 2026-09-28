@@ -301,4 +301,68 @@
   **사용자가 2026-09-28에 이 상태를 승인해 Phase 5를 닫았다**(4회차 Codex 실행은
   진행하지 않음). 전체 기록과 승인 근거는 `docs/reviews/A5.md`.
 
+### Phase 6 · 실행 파일 패키징과 v0.1 통합 검증 (2026-09-28)
+
+**무엇을**
+- `youtube-downloader.spec`(신규) — `workbench-kit.spec`(pywebview 갈래)을 본으로 만든
+  PyInstaller onedir 스펙. `collect_all()`로 `webview`·`clr_loader`·`yt_dlp`를 담는다.
+  `youtube_kit`은 `collect_all()`이 아니라 `Tree('../youtube-kit/src', prefix='youtube_kit')`로
+  담는다 — `youtube-kit`이 editable 설치(`pip install -e`)라 PEP 660 `MetaPathFinder`로
+  임포트되는데, PyInstaller의 modulegraph가 그 finder를 못 따라가 `collect_all('youtube_kit')`을
+  쓰면 dist-info 메타데이터에서 모듈 이름만 얻고 실제 파일은 못 찾아 `Hidden import
+  'youtube_kit.core' not found` 경고만 내고 **소스를 하나도 안 담은 채** 빌드가 "성공"으로
+  끝난다(실제로 처음 빌드에서 이렇게 됐다 — 아래 "결과" 절). `Tree()`로 실제 소스 디렉터리를
+  평범한 온디스크 패키지로 복사해 넣으면 이 문제가 없다(`youtube-kit`의 임포트는 stdlib와
+  `yt_dlp`뿐이라 modulegraph 분석 없이도 안전함을 코드로 확인, D-27).
+- `src/hosts/pywebview/main.py`의 `DIST_DIR` 계산을 `_dist_dir()` 함수로 바꿔 `sys.frozen`일 때
+  `sys._MEIPASS`(PyInstaller 압축 해제 디렉터리)를 기준으로 삼는다 — 기존 코드는 소스 트리의
+  `__file__`에서 4단계 위로 올라가는 방식이라, frozen exe 안에서는 그 경로가 실존하지 않아
+  깨진다(`workbench-kit`의 `main.py`가 이미 겪고 고친 것과 같은 문제, 같은 패턴을 적용).
+- `src/styles/theme-dark.css`의 `:root, [data-theme="dark"] {`에서 `:root,`를 제거 — `:root`가
+  `data-theme` 속성값과 무관하게 항상 매치하고, `theme-light.css`([data-theme="light"])와
+  명시도가 같은 상태에서 `index.html`에 dark 파일이 light 파일보다 나중에 로드되므로,
+  Light 테마를 아무리 선택해도 CSS 변수가 계속 dark 값으로 덮였다. `workbench-kit`의
+  원본 `src/style.css`(D-30이 옮겨오기로 한 기준)에는 `:root,`가 없음을 대조해 확인했다 —
+  옮기는 과정에서 생긴 오타이지 의도된 기본값이 아니다.
+- `youtube-downloader.spec`의 `Tree()` 호출에 주석을 추가했다(A6 지적 #2 처리, 아래 검증 절).
+
+**결과**
+- `npm run typecheck`, `npm run build` 통과. `tests/` 59개 전부 통과(변경 없음, 회귀 없음
+  재확인).
+- 첫 `pyinstaller` 빌드는 경고 없이 "성공"했지만 `youtube_kit` 소스가 하나도 안 담겨 있었다
+  (`dist-py/youtube-downloader/_internal/`에 `youtube_kit-0.1.0.dist-info`만 있고 `.py`가
+  없음) — 실제로 exe를 실행하지 않고 빌드 로그만 봤다면 놓쳤을 결함이다. `Tree()`로 고친
+  뒤 재빌드해 `_internal/youtube_kit/{__init__,__main__,cli,core,errors,url}.py` 6개가 모두
+  들어 있음을 직접 확인했다.
+- 빌드한 실행 파일 폴더(`dist-py/youtube-downloader/`)를 프로젝트 밖 경로
+  (`%TEMP%\ytdl-package-test\youtube-downloader\`)로 복사해 그 경로에서 실행 — 크래시 없이
+  창이 뜨고 몇 초간 유지됨을 프로세스 목록으로 확인(FR 없음, Phase 6 완료 조건 "옮겨도
+  실행된다").
+- `where ffmpeg`로 사용자 머신 PATH에 `ffmpeg`가 있음을 확인(D-27 전제).
+- **실행 파일로 실제 통합 검증**: 사용자가 옮긴 실행 파일을 직접 조작해 PLAN.md Phase 6의
+  통합 검증 8개 항목을 확인했다 — 개별 영상 URL 입력부터 정보 조회·행 옵션 선택·다운로드
+  완료, 재생목록 URL 입력부터 전체 행 생성·각 행 독립 갱신·서로 다른 옵션 선택·순서 변경까지
+  1~7번은 처음부터 정상 동작을 확인받았다. 8번(Light/Dark 테마 전환)은 첫 확인에서 실패해
+  위 `theme-dark.css` 버그를 찾아 고쳤고, 재패키징한 실행 파일로 사용자가 다시 확인해
+  정상 동작을 확인받았다(2026-09-28).
+- **반대 벤더(Codex `gpt-6-sol`) 검토**: Major 2건 — (1) `ffmpeg`를 PATH에서 찾는 것이 옮긴
+  환경에서 깨질 수 있다는 지적은 `DECISIONS.md` D-27·`SPEC.md`가 이미 명시적으로 정한
+  범위(ffmpeg 미포함)라 결함이 아니라고 반박, (2) `Tree()`가 `youtube-kit`의 소스 레이아웃이
+  평평하다고 가정하는 것은 실제로 유효한 취약점이라 스펙 파일에 가정과 재검토 지점을
+  주석으로 남겼다(레이아웃 자체가 바뀌지 않는 한 코드 동작에는 영향 없음, 현재 레이아웃이
+  평평함을 직접 확인). Critical은 없어 1회차로 종료했다. 전체 기록은 `docs/reviews/A6.md`.
+
+**검증**
+- PLAN.md Phase 6 완료 조건 2개(패키징+이식성, 통합 검증) 대조: 패키징·이식성은 자동화된
+  빌드+실제 프로세스 실행으로 확인, 통합 검증 5개 항목(개별 영상 흐름·재생목록 흐름·
+  Light/Dark 테마)은 **사용자가 실행 파일을 직접 조작해 확인**했다 — 이 세션은 네이티브
+  pywebview 창을 클릭할 도구가 없어(Chrome 전용 브라우저 자동화만 있음) 이 부분만은 자동화
+  검증이 아니라 사용자 수동 검증으로 대체했다(Phase 2·5의 대화상자 클릭 제약과 같은 구조적
+  한계, 사용자에게 사전에 알리고 진행 방식을 물어 승인받음, 2026-09-28).
+- **Phase 6은 필수 통과 대상**(PLAN.md 적대적 검증 절). 반대 벤더 검토 기록은
+  `docs/reviews/A6.md`. Critical 없음, Major 2건은 각각 반박·주석 보완으로 처리, 미해결
+  위험 없음.
+- v0.1의 `BRIEF.md` 완료 조건 11개 전부가 위 통합 검증과 이전 Phase의 자동화 테스트로
+  충족됨을 대조했다.
+
 ## 2. 계획 외 개선
