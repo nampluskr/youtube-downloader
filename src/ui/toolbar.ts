@@ -2,6 +2,14 @@ import { ThemeManager } from '../core/theme';
 
 export interface ToolbarCallbacks {
   onToggleTheme: () => void;
+  onRemoveSelected: () => void;
+  onChooseFolder: () => void;
+}
+
+export interface ToolbarHandle {
+  element: HTMLElement;
+  setFolderPath: (path: string) => void;
+  setRemoveEnabled: (enabled: boolean) => void;
 }
 
 function iconButton(icon: string, tooltip: string, id: string): HTMLButtonElement {
@@ -16,7 +24,7 @@ function iconButton(icon: string, tooltip: string, id: string): HTMLButtonElemen
   return btn;
 }
 
-export function createToolbar(theme: ThemeManager, callbacks: ToolbarCallbacks): HTMLElement {
+export function createToolbar(_theme: ThemeManager, callbacks: ToolbarCallbacks): ToolbarHandle {
   const toolbar = document.createElement('div');
   toolbar.className = 'app-toolbar';
 
@@ -29,22 +37,24 @@ export function createToolbar(theme: ThemeManager, callbacks: ToolbarCallbacks):
   rowGroup.className = 'toolbar-group';
   rowGroup.appendChild(iconButton('arrow-up', 'Move Up', 'toolbar-move-up'));
   rowGroup.appendChild(iconButton('arrow-down', 'Move Down', 'toolbar-move-down'));
-  rowGroup.appendChild(iconButton('trash', 'Remove', 'toolbar-remove'));
+
+  const removeBtn = iconButton('trash', 'Remove', 'toolbar-remove');
+  removeBtn.addEventListener('click', () => callbacks.onRemoveSelected());
+  rowGroup.appendChild(removeBtn);
   rowGroup.appendChild(iconButton('clear-all', 'Clear Completed', 'toolbar-clear-completed'));
 
   const folderBtn = document.createElement('button');
   folderBtn.id = 'toolbar-choose-folder';
   folderBtn.className = 'toolbar-folder';
   folderBtn.title = 'Choose Folder';
-  folderBtn.disabled = true;
   const folderIcon = document.createElement('i');
   folderIcon.className = 'codicon codicon-folder';
   const folderPath = document.createElement('span');
   folderPath.className = 'toolbar-folder-path';
   folderPath.id = 'toolbar-folder-path';
-  folderPath.textContent = 'Downloads';
   folderBtn.appendChild(folderIcon);
   folderBtn.appendChild(folderPath);
+  folderBtn.addEventListener('click', () => callbacks.onChooseFolder());
 
   const spacer = document.createElement('div');
   spacer.className = 'toolbar-spacer';
@@ -62,5 +72,13 @@ export function createToolbar(theme: ThemeManager, callbacks: ToolbarCallbacks):
   toolbar.appendChild(themeBtn);
   toolbar.appendChild(settingsBtn);
 
-  return toolbar;
+  return {
+    element: toolbar,
+    setFolderPath: (path: string) => {
+      folderPath.textContent = path;
+    },
+    setRemoveEnabled: (enabled: boolean) => {
+      removeBtn.disabled = !enabled;
+    },
+  };
 }

@@ -25,7 +25,7 @@ def main() -> None:
             pass
 
     api = Api()
-    webview.create_window(
+    window = webview.create_window(
         "YouTube Downloader",
         entry_url(),
         js_api=api,
@@ -33,6 +33,7 @@ def main() -> None:
         height=650,
         min_size=(760, 420),
     )
+    api.bind(window)
     webview.start()
 
 

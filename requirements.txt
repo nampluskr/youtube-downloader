@@ -1,1 +1,5 @@
 pywebview>=6.2.1
+
+# youtube-kit is a runtime dependency (D-2, D-27). Development installs it
+# editable from the local repo; packaging bundles it via PyInstaller instead:
+#   pip install -e ../youtube-kit

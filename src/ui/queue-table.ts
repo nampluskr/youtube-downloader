@@ -1,6 +1,45 @@
+import type { RowSnapshot } from '../bridge';
+
 const COLUMNS = ['#', 'Title', 'Resolution', 'Codec', 'Audio', 'Subtitle', 'Size', 'Status'];
 
-export function createQueueTable(): HTMLElement {
+export interface QueueTableHandle {
+  element: HTMLElement;
+  render: (rows: RowSnapshot[], selectedId: string | null) => void;
+}
+
+export interface QueueTableCallbacks {
+  onSelect: (id: string) => void;
+}
+
+function statusCell(row: RowSnapshot): HTMLElement {
+  const cell = document.createElement('td');
+  const icon = document.createElement('i');
+  const label = document.createElement('span');
+
+  switch (row.status) {
+    case 'queued':
+      label.textContent = 'Queued';
+      break;
+    case 'fetching':
+      icon.className = 'codicon codicon-sync codicon-modifier-spin status-icon status-progress';
+      label.textContent = 'Fetching';
+      break;
+    case 'ready':
+      label.textContent = 'Ready';
+      break;
+    case 'failed':
+      icon.className = 'codicon codicon-error status-icon status-error';
+      label.textContent = 'Failed';
+      cell.title = row.error ?? '';
+      break;
+  }
+
+  if (icon.className) cell.appendChild(icon);
+  cell.appendChild(label);
+  return cell;
+}
+
+export function createQueueTable(callbacks: QueueTableCallbacks): QueueTableHandle {
   const main = document.createElement('div');
   main.className = 'app-main';
 
@@ -36,5 +75,52 @@ export function createQueueTable(): HTMLElement {
 
   main.appendChild(empty);
   main.appendChild(wrap);
-  return main;
+
+  function render(rows: RowSnapshot[], selectedId: string | null): void {
+    empty.style.display = rows.length === 0 ? 'flex' : 'none';
+    wrap.style.display = rows.length === 0 ? 'none' : 'block';
+
+    tbody.innerHTML = '';
+    rows.forEach((row, index) => {
+      const tr = document.createElement('tr');
+      tr.dataset.rowId = row.id;
+      if (row.id === selectedId) tr.classList.add('selected');
+      tr.addEventListener('click', () => callbacks.onSelect(row.id));
+
+      const indexCell = document.createElement('td');
+      indexCell.textContent = String(index + 1);
+
+      const titleCell = document.createElement('td');
+      titleCell.textContent = row.title;
+      titleCell.title = `${row.title}\n${row.id}`;
+
+      const resolutionCell = document.createElement('td');
+      resolutionCell.textContent = '';
+
+      const codecCell = document.createElement('td');
+      codecCell.textContent = '';
+
+      const audioCell = document.createElement('td');
+      audioCell.textContent = '';
+
+      const subtitleCell = document.createElement('td');
+      subtitleCell.textContent = '';
+
+      const sizeCell = document.createElement('td');
+      sizeCell.textContent = '-';
+
+      tr.appendChild(indexCell);
+      tr.appendChild(titleCell);
+      tr.appendChild(resolutionCell);
+      tr.appendChild(codecCell);
+      tr.appendChild(audioCell);
+      tr.appendChild(subtitleCell);
+      tr.appendChild(sizeCell);
+      tr.appendChild(statusCell(row));
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  return { element: main, render };
 }
